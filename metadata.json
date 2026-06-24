@@ -1,0 +1,6 @@
+{
+  "name": "FS TALAVERA STATS MANAGER",
+  "description": "Gestor táctico y de estadísticas de fútbol sala femenino con cronómetro en pista, registro de tiros, tarjetas y exportación a PDF",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
