@@ -22,12 +22,12 @@ export default defineConfig(() => {
           display: 'standalone',
           icons: [
             {
-              src: 'https://api.clupik.com/clubs/10590/images/navbar.png',
+              src: './logo.png',
               sizes: '192x192',
               type: 'image/png'
             },
             {
-              src: 'https://api.clupik.com/clubs/10590/images/navbar.png',
+              src: './logo.png',
               sizes: '512x512',
               type: 'image/png'
             }

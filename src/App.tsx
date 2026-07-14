@@ -565,7 +565,7 @@ export default function App() {
             <div className="relative w-8 h-8 bg-white rounded-full border border-[#FFD700] flex items-center justify-center shadow-xs shrink-0 p-0.5">
               <img
                 referrerPolicy="no-referrer"
-                src="https://api.clupik.com/clubs/10590/images/navbar.png"
+                src="./logo.png"
                 alt="FS Talavera Femenino"
                 className="w-full h-full object-contain"
               />
