@@ -709,7 +709,7 @@ export default function LiveTracker({
       alert('Debes convocar exactamente a 5 "Titulares" como quinteto inicial en cancha.');
       return;
     }
-    if (matchState.suplentes.length > 9) {
+    if (matchState.matchType === 'oficial' && matchState.suplentes.length > 9) {
       alert('El número reglamentario máximo de "Suplentes" es de 9 jugadores/as.');
       return;
     }
@@ -1258,9 +1258,12 @@ export default function LiveTracker({
     // Starters list handlers
     const handleSetStarter = (index: number, playerId: string) => {
       setMatchState(prev => {
-        const next = [...prev.titulares];
-        next[index] = playerId;
-        return { ...prev, titulares: next };
+        const nextTitulares = [...prev.titulares];
+        const previousId = nextTitulares[index];
+        nextTitulares[index] = playerId;
+        // ensure player is not also a suplente
+        const nextSuplentes = prev.suplentes.filter(id => id !== playerId);
+        return { ...prev, titulares: nextTitulares, suplentes: nextSuplentes };
       });
     };
 
