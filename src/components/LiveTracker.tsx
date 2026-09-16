@@ -1244,7 +1244,7 @@ export default function LiveTracker({
     .map(id => players.find(p => p.id === id))
     .filter((p): p is Player => !!(p && p.isActive && matchState.playersState[p.id]?.isOnCourt));
   const benchTeam = players
-    .filter(p => !matchState.playersState[p.id]?.isOnCourt && p.isActive)
+    .filter(p => !matchState.playersState[p.id]?.isOnCourt && p.isActive && (matchState.titulares.includes(p.id) || matchState.suplentes.includes(p.id)))
     .sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
 
   // -------------------------------------------------------------
@@ -1267,8 +1267,8 @@ export default function LiveTracker({
     // Adds a player to suplentes roster list
     const handleAddSuplente = (playerId: string) => {
       if (matchState.suplentes.includes(playerId)) return;
-      if (matchState.suplentes.length >= 9) {
-        alert('Solo puedes añadir un máximo de 9 suplentes.');
+      if (matchState.matchType === 'oficial' && matchState.suplentes.length >= 9) {
+        alert('Solo puedes añadir un máximo de 9 suplentes en partidos oficiales.');
         return;
       }
       setMatchState(prev => {
@@ -1601,7 +1601,7 @@ export default function LiveTracker({
           {/* BLOCK 3: Suplentes builder max 9 */}
           <div className="space-y-4">
             <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1 border-b border-slate-100 pb-2 font-display">
-              <Users size={16} /> Jugadores/as Suplentes (Máx. 9 seleccionados: {matchState.suplentes.length} / 9)
+              <Users size={16} /> Jugadores/as Suplentes {matchState.matchType === 'oficial' ? `(Máx. 9 seleccionados: ${matchState.suplentes.length} / 9)` : `(${matchState.suplentes.length} seleccionados)`}
             </h3>
 
             {/* Quick click pool button list with visual thumbnails */}
@@ -1652,17 +1652,17 @@ export default function LiveTracker({
           {/* VERIFY / SUBMIT */}
           <div className="pt-6 border-t border-slate-100 flex flex-col items-center justify-center space-y-3">
             {/* Dynamic visual badge explaining blocking */}
-            {(!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(Boolean).length !== 5 || matchState.suplentes.length > 9) && (
+            {(!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(Boolean).length !== 5 || (matchState.matchType === 'oficial' && matchState.suplentes.length > 9)) && (
               <p className="text-xs font-semibold text-rose-500 bg-rose-50 border border-rose-100 px-4 py-2 rounded-xl flex items-center gap-1">
-                ⚠️ Completa el Nombre del Rival, {matchState.matchType === 'oficial' ? 'la Jornada, ' : ''}selecciona exactamente 5 Titulares y un máximo de 9 Suplentes para comenzar el partido.
+                ⚠️ Completa el Nombre del Rival, {matchState.matchType === 'oficial' ? 'la Jornada, ' : ''}selecciona exactamente 5 Titulares{matchState.matchType === 'oficial' ? ' y un máximo de 9 Suplentes' : ''} para comenzar el partido.
               </p>
             )}
             <button
                onClick={handleStartMatch}
-              disabled={!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(Boolean).length !== 5 || matchState.suplentes.length > 9}
+              disabled={!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(Boolean).length !== 5 || (matchState.matchType === 'oficial' && matchState.suplentes.length > 9)}
               id="btn-prematch-start"
               className={`font-black text-sm uppercase px-12 py-5 rounded-2xl transition cursor-pointer shadow-lg tracking-wider space-y-1 border-b-4 ${
-                (!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(Boolean).length !== 5 || matchState.suplentes.length > 9)
+                (!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(Boolean).length !== 5 || (matchState.matchType === 'oficial' && matchState.suplentes.length > 9))
                   ? 'bg-slate-300 text-slate-500 border-slate-400 cursor-not-allowed opacity-50'
                   : 'bg-[#004183] text-white hover:bg-[#002f61] border-yellow-500 hover:scale-[1.01]'
               }`}
