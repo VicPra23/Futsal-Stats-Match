@@ -716,6 +716,9 @@ export default function LiveTracker({
 
     // Initialize court state
     setMatchState(prev => {
+      // Safety cleanup: remove any suplente that ended up also as titular
+      const cleanSuplentes = prev.suplentes.filter(id => !prev.titulares.includes(id));
+
       const updatedPlayers = { ...prev.playersState };
       
       // All starters marked on court, others off court
@@ -729,6 +732,7 @@ export default function LiveTracker({
 
       return {
         ...prev,
+        suplentes: cleanSuplentes,
         playersState: updatedPlayers,
         isPreMatch: false,
         overallSeconds: (prev.periodDurationMinutes ?? 20) * 60,
@@ -1346,31 +1350,33 @@ export default function LiveTracker({
 
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  Elegir Equipación FS Talavera
+                  Equipación FS Talavera · ¿Local o Visitante?
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => setMatchState({ ...matchState, talaveraKit: '1ª Equipación' })}
                     className={`p-2 rounded-xl border text-xs font-extrabold transition cursor-pointer select-none text-center ${
                       matchState.talaveraKit === '1ª Equipación'
-                        ? 'bg-[#38bdf8] text-slate-950 border-[#38bdf8] shadow-md'
-                        : 'bg-white text-slate-700 border-slate-200'
+                        ? 'bg-[#38bdf8] text-slate-950 border-[#38bdf8] shadow-md ring-2 ring-[#38bdf8]/40'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
+                    <span className="block text-base">🏠</span>
                     <span className="block font-extrabold">1ª Equipación</span>
-                    <span className="block text-[10px] font-medium opacity-90 mt-0.5">(Azul cielo)</span>
+                    <span className="block text-[10px] font-bold mt-0.5 uppercase tracking-wide">Local · Azul</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setMatchState({ ...matchState, talaveraKit: '2ª Equipación' })}
                     className={`p-2 rounded-xl border text-xs font-extrabold transition cursor-pointer select-none text-center ${
                       matchState.talaveraKit === '2ª Equipación'
-                        ? 'bg-[#ec4899] text-white border-[#ec4899] shadow-md'
-                        : 'bg-white text-slate-700 border-slate-200'
+                        ? 'bg-[#ec4899] text-white border-[#ec4899] shadow-md ring-2 ring-[#ec4899]/40'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
+                    <span className="block text-base">✈️</span>
                     <span className="block font-extrabold">2ª Equipación</span>
-                    <span className="block text-[10px] font-medium opacity-90 mt-0.5">(Rosa)</span>
+                    <span className="block text-[10px] font-bold mt-0.5 uppercase tracking-wide">Visitante · Rosa</span>
                   </button>
                 </div>
               </div>
@@ -1612,21 +1618,28 @@ export default function LiveTracker({
               {availablePlayers.map(p => {
                 const isStarter = matchState.titulares.includes(p.id);
                 const isSuplente = matchState.suplentes.includes(p.id);
+                // A player that is starter AND somehow still in suplentes: allow clicking only to remove from bench
+                const isStarterOnlyNoSub = isStarter && !isSuplente;
                 
                 return (
                   <button
                     key={p.id}
                     onClick={() => {
-                      if (isStarter) return;
+                      if (isStarterOnlyNoSub) return; // truly blocked: starter and NOT in bench
+                      if (isStarter && isSuplente) {
+                        // Edge case: player is both starter and bench - just remove from bench
+                        handleRemoveSuplente(p.id);
+                        return;
+                      }
                       if (isSuplente) {
                         handleRemoveSuplente(p.id);
                       } else {
                         handleAddSuplente(p.id);
                       }
                     }}
-                    disabled={isStarter}
+                    disabled={isStarterOnlyNoSub}
                     className={`p-1.5 pr-3 rounded-xl border font-bold transition flex items-center gap-2 select-none cursor-pointer ${
-                      isStarter
+                      isStarterOnlyNoSub
                         ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-60'
                         : isSuplente
                         ? 'bg-yellow-400 text-blue-950 border-yellow-400 shadow ring-2 ring-yellow-400'
@@ -1644,7 +1657,7 @@ export default function LiveTracker({
                       <span className="text-[9px] text-slate-400 font-mono">#{p.number}</span>
                       <span className="text-xs">{p.alias || p.name}</span>
                     </div>
-                    {isStarter && <span className="text-[8px] uppercase font-normal text-slate-400">(Titular)</span>}
+                    {isStarterOnlyNoSub && <span className="text-[8px] uppercase font-normal text-slate-400">(Titular)</span>}
                     {isSuplente && <span className="text-[9px] rounded-full bg-yellow-600/30 px-1 hover:bg-yellow-600/40 text-blue-950">✕</span>}
                   </button>
                 );
@@ -1699,7 +1712,9 @@ export default function LiveTracker({
             <span className="bg-yellow-500 text-[#004183] font-black text-[10px] uppercase px-2.5 py-0.5 rounded-md tracking-wider shrink-0">
                {matchState.half}ª PARTE
             </span>
-            <span className="text-xs text-slate-400 font-bold tracking-widest bg-slate-850/60 px-2 py-0.5 rounded shrink-0">{matchState.talaveraKit}</span>
+            <span className="text-xs text-slate-400 font-bold tracking-widest bg-slate-850/60 px-2 py-0.5 rounded shrink-0">
+              {matchState.talaveraKit === '1ª Equipación' ? '🏠 Local' : '✈️ Visitante'}
+            </span>
             <span className="text-slate-600 font-bold">•</span>
             <div className="text-base font-black text-white flex items-center gap-1 font-display">
               vs <span className="text-[#FFD700] font-bold font-sans">{matchState.rival}</span>

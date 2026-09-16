@@ -466,6 +466,97 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
                 </div>
               </div>
 
+              {/* SECTION A2: LOCAL vs VISITANTE BREAKDOWN */}
+              {(() => {
+                const localMatches = filteredMatches.filter(m => m.talaveraKit === '1ª Equipación');
+                const visitanteMatches = filteredMatches.filter(m => m.talaveraKit === '2ª Equipación');
+
+                const calcStats = (matches: typeof filteredMatches) => ({
+                  total: matches.length,
+                  wins: matches.filter(m => m.result === 'W').length,
+                  draws: matches.filter(m => m.result === 'D').length,
+                  losses: matches.filter(m => m.result === 'L').length,
+                  goalsFor: matches.reduce((a, m) => a + m.goalsFor, 0),
+                  goalsAgainst: matches.reduce((a, m) => a + m.goalsAgainst, 0),
+                });
+
+                const ls = calcStats(localMatches);
+                const vs = calcStats(visitanteMatches);
+
+                if (ls.total === 0 && vs.total === 0) return null;
+
+                const HalfCard = ({ emoji, label, bgClass, borderClass, textClass, accentClass, stats }: {
+                  emoji: string; label: string; bgClass: string; borderClass: string; textClass: string; accentClass: string;
+                  stats: ReturnType<typeof calcStats>;
+                }) => (
+                  <div className={`rounded-2xl p-5 border-2 ${bgClass} ${borderClass} flex flex-col gap-3`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{emoji}</span>
+                      <span className={`text-xs font-black uppercase tracking-widest ${textClass}`}>{label}</span>
+                      <span className={`ml-auto text-[10px] font-bold ${accentClass} px-2 py-0.5 rounded-full`}>
+                        {stats.total} {stats.total === 1 ? 'partido' : 'partidos'}
+                      </span>
+                    </div>
+
+                    {stats.total === 0 ? (
+                      <p className="text-xs text-slate-400 italic">Sin partidos registrados</p>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="bg-white/70 rounded-xl py-2 border border-white/60">
+                            <span className="block text-[9px] uppercase tracking-wider text-emerald-600 font-bold">Victorias</span>
+                            <span className="block text-2xl font-black text-emerald-700 font-display">{stats.wins}</span>
+                          </div>
+                          <div className="bg-white/70 rounded-xl py-2 border border-white/60">
+                            <span className="block text-[9px] uppercase tracking-wider text-slate-500 font-bold">Empates</span>
+                            <span className="block text-2xl font-black text-slate-700 font-display">{stats.draws}</span>
+                          </div>
+                          <div className="bg-white/70 rounded-xl py-2 border border-white/60">
+                            <span className="block text-[9px] uppercase tracking-wider text-rose-500 font-bold">Derrotas</span>
+                            <span className="block text-2xl font-black text-rose-700 font-display">{stats.losses}</span>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center text-xs pt-2 border-t border-white/40">
+                          <span className={`${textClass} font-semibold`}>Goles: <strong>{stats.goalsFor}</strong> a favor / <strong>{stats.goalsAgainst}</strong> en contra</span>
+                          <span className={`font-mono font-black ${accentClass} px-2 py-0.5 rounded-lg text-[11px]`}>
+                            {stats.total > 0 ? Math.round((stats.wins / stats.total) * 100) : 0}% victorias
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+
+                return (
+                  <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="w-2 md:w-2.5 h-5 bg-[#004183] rounded-full"></span>
+                      <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">Rendimiento Local vs. Visitante</h4>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <HalfCard
+                        emoji="🏠"
+                        label="De Local (1ª Equipación)"
+                        bgClass="bg-sky-50"
+                        borderClass="border-sky-200"
+                        textClass="text-sky-800"
+                        accentClass="bg-sky-100 text-sky-700"
+                        stats={ls}
+                      />
+                      <HalfCard
+                        emoji="✈️"
+                        label="De Visitante (2ª Equipación)"
+                        bgClass="bg-pink-50"
+                        borderClass="border-pink-200"
+                        textClass="text-pink-800"
+                        accentClass="bg-pink-100 text-pink-700"
+                        stats={vs}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* SECTION B: CHARTS AND VISUALS FOR SEASON STATS */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="visual-season-analytics-container">
                 

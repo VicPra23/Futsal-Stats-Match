@@ -412,11 +412,18 @@ export default function HistoryList({
                     </div>
 
                     <div className="space-y-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[11px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">
                           {match.matchType === "amistoso"
                             ? "Amistoso"
                             : `Jornada ${match.jornada}`}
+                        </span>
+                        <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                          match.talaveraKit === '1ª Equipación'
+                            ? 'bg-sky-100 text-sky-700'
+                            : 'bg-pink-100 text-pink-700'
+                        }`}>
+                          {match.talaveraKit === '1ª Equipación' ? '🏠 Local' : '✈️ Visitante'}
                         </span>
                         <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
                           <Calendar size={12} /> {match.date}
