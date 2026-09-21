@@ -433,7 +433,12 @@ export default function App() {
         setPlayers(prev => {
           const merged = [...(prev || [])];
           pendingImport.players!.forEach(newP => {
-            const exists = merged.find(p => p.id === newP.id || (p.name.toLowerCase() === newP.name.toLowerCase() && p.number === newP.number));
+            const exists = merged.find(p =>
+              p.id === newP.id ||
+              (p.name.trim().toLowerCase() === newP.name.trim().toLowerCase() && p.number === newP.number) ||
+              // Two active players can never share a dorsal number, even if the name differs slightly
+              (p.isActive && newP.isActive && p.number === newP.number)
+            );
             if (!exists) {
               merged.push(newP);
             }
