@@ -830,15 +830,22 @@ export default function LiveTracker({
         }
         setMatchState(prev => {
           let updatedTitulares = [...(prev.titulares || [])];
+          let updatedSuplentes = (prev.suplentes || []).filter(sId => sId !== id);
           const inactiveIndex = updatedTitulares.findIndex(tId => !prev.playersState[tId]?.isOnCourt);
           if (inactiveIndex !== -1) {
+            const replacedId = updatedTitulares[inactiveIndex];
             updatedTitulares[inactiveIndex] = id;
+            // Send the replaced player back to the bench so they can re-enter later
+            if (replacedId && replacedId !== id && !updatedSuplentes.includes(replacedId)) {
+              updatedSuplentes = [...updatedSuplentes, replacedId];
+            }
           } else if (updatedTitulares.length < 5 && !updatedTitulares.includes(id)) {
             updatedTitulares.push(id);
           }
           return {
             ...prev,
             titulares: updatedTitulares,
+            suplentes: updatedSuplentes,
             playersState: {
               ...prev.playersState,
               [id]: {
@@ -886,9 +893,17 @@ export default function LiveTracker({
       // Replace exiting player in titulares array to maintain exact position order
       const updatedTitulares = (prev.titulares || []).map(id => id === exitingPlayerId ? subInPlayerId : id);
 
+      // Send the exiting player back to the bench so they can re-enter later,
+      // and remove the entering player from the bench since they are now a starter.
+      const updatedSuplentes = (prev.suplentes || []).filter(id => id !== subInPlayerId);
+      if (exitingPlayerId && !updatedSuplentes.includes(exitingPlayerId)) {
+        updatedSuplentes.push(exitingPlayerId);
+      }
+
       return {
         ...prev,
         titulares: updatedTitulares,
+        suplentes: updatedSuplentes,
         playersState: updated
       };
     });
@@ -1362,8 +1377,8 @@ export default function LiveTracker({
                     }`}
                   >
                     <span className="block text-base">🏠</span>
-                    <span className="block font-extrabold">1ª Equipación</span>
-                    <span className="block text-[10px] font-bold mt-0.5 uppercase tracking-wide">Local · Azul</span>
+                    <span className="block font-extrabold">Local</span>
+                    <span className="block text-[10px] font-bold mt-0.5 uppercase tracking-wide">1ª Equipación · Azul</span>
                   </button>
                   <button
                     type="button"
@@ -1375,8 +1390,8 @@ export default function LiveTracker({
                     }`}
                   >
                     <span className="block text-base">✈️</span>
-                    <span className="block font-extrabold">2ª Equipación</span>
-                    <span className="block text-[10px] font-bold mt-0.5 uppercase tracking-wide">Visitante · Rosa</span>
+                    <span className="block font-extrabold">Visitante</span>
+                    <span className="block text-[10px] font-bold mt-0.5 uppercase tracking-wide">2ª Equipación · Rosa</span>
                   </button>
                 </div>
               </div>
