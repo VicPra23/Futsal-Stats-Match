@@ -585,7 +585,7 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
 
     return [
       `#${p.number}`,
-      p.name + (isStartingGoalkeeper ? ' 🧤(T)' : ''),
+      p.name + (isStartingGoalkeeper ? ' (T)' : ''),
       getPlayerPositionLabel(p.position, p.gender),
       t1,
       t2,
