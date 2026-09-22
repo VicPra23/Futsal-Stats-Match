@@ -783,11 +783,18 @@ export default function LiveTracker({
 
       setActiveGoalkeeperId(newGKId);
 
+      // Recompute the bench for the 2nd half: everyone previously called up
+      // (starters + subs from the 1st half) who is NOT a starter now goes to
+      // the bench, so nobody vanishes from the squad.
+      const previousConvocatedIds = new Set([...(prev.titulares || []), ...(prev.suplentes || [])]);
+      const updatedSuplentes = Array.from(previousConvocatedIds).filter(id => !selectedStarters.includes(id));
+
       return {
         ...prev,
         half: 2,
         attackDirection: newAttackDir,
         titulares: selectedStarters,
+        suplentes: updatedSuplentes,
         overallSeconds: durationMin * 60,
         playersState: updatedPlayersState
       };
@@ -1180,12 +1187,18 @@ export default function LiveTracker({
   };
 
   const confirmFinishMatchArchive = () => {
-    // Extract statistics
+    // Extract statistics — only for players actually called up to this match
+    // (starters + bench), never the entire historical roster.
+    const convocadasIds = new Set([
+      ...(matchState.titulares || []),
+      ...(matchState.suplentes || [])
+    ]);
+
     const finalStats: Record<string, any> = {};
     let totalPlayerShots = 0;
     let totalPlayerYellows = 0;
 
-    players.forEach(p => {
+    players.filter(p => convocadasIds.has(p.id)).forEach(p => {
       const live = matchState.playersState[p.id] || {
         secondsPlayed: 0,
         secondsPlayed1st: 0,
