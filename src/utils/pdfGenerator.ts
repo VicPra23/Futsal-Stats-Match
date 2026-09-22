@@ -449,9 +449,15 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
 
   // --- GOAL TIMELINE TABLE (Right Side) ---
   const goalEvents = [...match.shotsEvents].filter(s => s.type === 'goal');
+  const parseTimeToSeconds = (timeString: string): number => {
+    const [min, sec] = timeString.split(':').map(n => parseInt(n, 10) || 0);
+    return min * 60 + sec;
+  };
   goalEvents.sort((a, b) => {
     if (a.half !== b.half) return a.half - b.half;
-    return a.timeString.localeCompare(b.timeString);
+    // Futsal clock counts DOWN (20:00 -> 00:00), so a higher remaining time
+    // means the goal happened earlier in that half.
+    return parseTimeToSeconds(b.timeString) - parseTimeToSeconds(a.timeString);
   });
 
   let runningLocalScore = 0;
@@ -585,7 +591,7 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
 
     return [
       `#${p.number}`,
-      p.name + (isStartingGoalkeeper ? ' (T)' : ''),
+      p.name,
       getPlayerPositionLabel(p.position, p.gender),
       t1,
       t2,
