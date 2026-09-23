@@ -473,8 +473,12 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
 
     let scorerName = 'Rival';
     if (g.team === 'local') {
-      const scorerPlayer = allPlayers.find(p => p.id === g.playerId || p.number === g.playerNumber);
-      scorerName = scorerPlayer ? `${scorerPlayer.alias} (#${scorerPlayer.number})` : (g.playerNumber ? `Equipo (#${g.playerNumber})` : 'Equipo');
+      // Match by unique player ID first; only fall back to dorsal number
+      // among currently active players, to avoid matching old/inactive
+      // players who historically shared the same number.
+      const scorerPlayer = allPlayers.find(p => p.id === g.playerId)
+        || allPlayers.find(p => p.isActive && p.number === g.playerNumber);
+      scorerName = scorerPlayer ? `${scorerPlayer.alias || scorerPlayer.name} (#${scorerPlayer.number})` : (g.playerNumber ? `Equipo (#${g.playerNumber})` : 'Equipo');
     }
 
     return [
