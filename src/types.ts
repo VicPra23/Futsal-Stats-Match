@@ -76,6 +76,7 @@ export interface LivePlayerState {
   redCard: boolean;
   secondsPlayed: number; // Total accumulated seconds played (for active half)
   secondsPlayed1st?: number; // Total seconds played in the first half
+  currentShiftSeconds?: number; // Seconds played in the current on-court rotation stint
   timerStartTimestamp: number | null; // For running timer tracking
   saves: number;
   goalsConceded: number;

@@ -34,6 +34,7 @@ export default function LiveTracker({
         yellows: 0,
         redCard: false,
         secondsPlayed: 0,
+        currentShiftSeconds: 0,
         timerStartTimestamp: null,
         saves: 0,
         goalsConceded: 0
@@ -124,6 +125,7 @@ export default function LiveTracker({
             yellows: 0,
             redCard: false,
             secondsPlayed: 0,
+            currentShiftSeconds: 0,
             timerStartTimestamp: null,
             saves: 0,
             goalsConceded: 0
@@ -135,6 +137,7 @@ export default function LiveTracker({
           ps.yellows = ps.yellows ?? 0;
           ps.redCard = ps.redCard ?? false;
           ps.secondsPlayed = ps.secondsPlayed ?? 0;
+          ps.currentShiftSeconds = ps.currentShiftSeconds ?? 0;
           ps.saves = ps.saves ?? 0;
           ps.goalsConceded = ps.goalsConceded ?? 0;
         }
@@ -199,7 +202,8 @@ export default function LiveTracker({
             if (ps.isOnCourt && !ps.redCard) {
               updatedPlayers[pid] = {
                 ...ps,
-                secondsPlayed: ps.secondsPlayed + 1
+                secondsPlayed: ps.secondsPlayed + 1,
+                currentShiftSeconds: (ps.currentShiftSeconds ?? 0) + 1
               };
             }
           });
@@ -683,7 +687,8 @@ export default function LiveTracker({
           const adjustment = -appliedDelta;
           updatedPlayers[pid] = {
             ...ps,
-            secondsPlayed: Math.max(0, ps.secondsPlayed + adjustment)
+            secondsPlayed: Math.max(0, ps.secondsPlayed + adjustment),
+            currentShiftSeconds: Math.max(0, (ps.currentShiftSeconds ?? ps.secondsPlayed) + adjustment)
           };
         }
       });
@@ -727,7 +732,8 @@ export default function LiveTracker({
         updatedPlayers[pId] = {
           ...updatedPlayers[pId],
           isOnCourt: prev.titulares.includes(pId),
-          secondsPlayed: 0
+          secondsPlayed: 0,
+          currentShiftSeconds: 0
         };
       });
 
@@ -769,6 +775,7 @@ export default function LiveTracker({
           ...updatedPlayersState[pId],
           secondsPlayed1st: updatedPlayersState[pId].secondsPlayed || 0, // Store 1st half seconds played
           secondsPlayed: 0, // Restart time tracking from 0 for 2nd half control
+          currentShiftSeconds: 0,
           isOnCourt: selectedStarters.includes(pId) && !updatedPlayersState[pId].redCard
         };
       });
@@ -858,7 +865,8 @@ export default function LiveTracker({
               ...prev.playersState,
               [id]: {
                 ...prev.playersState[id],
-                isOnCourt: true
+                isOnCourt: true,
+                currentShiftSeconds: 0
               }
             }
           };
@@ -877,19 +885,21 @@ export default function LiveTracker({
     setMatchState(prev => {
       const updated = { ...prev.playersState };
 
-      // Stop/pause timer of exiting player
+      // Stop/pause timer of exiting player, reset current stint
       if (updated[exitingPlayerId]) {
         updated[exitingPlayerId] = {
           ...updated[exitingPlayerId],
-          isOnCourt: false
+          isOnCourt: false,
+          currentShiftSeconds: 0
         };
       }
 
-      // Start timer of entering player
+      // Start timer of entering player from ZERO for her new stint
       if (updated[subInPlayerId]) {
         updated[subInPlayerId] = {
           ...updated[subInPlayerId],
-          isOnCourt: true
+          isOnCourt: true,
+          currentShiftSeconds: 0
         };
       }
 
@@ -2402,14 +2412,18 @@ export default function LiveTracker({
                           <button onClick={() => {
                             setMatchState(prev => {
                               const s = prev.playersState[p.id];
-                              return { ...prev, playersState: { ...prev.playersState, [p.id]: { ...s, secondsPlayed: Math.max(0, s.secondsPlayed - 60) } } };
+                              const newTot = Math.max(0, s.secondsPlayed - 60);
+                              const newShift = Math.max(0, (s.currentShiftSeconds ?? s.secondsPlayed) - 60);
+                              return { ...prev, playersState: { ...prev.playersState, [p.id]: { ...s, secondsPlayed: newTot, currentShiftSeconds: newShift } } };
                             });
                           }} className="hover:text-[#004183] cursor-pointer select-none" title="Restar 1 minuto">-1m</button>
                           <span className="opacity-50">|</span>
                           <button onClick={() => {
                             setMatchState(prev => {
                               const s = prev.playersState[p.id];
-                              return { ...prev, playersState: { ...prev.playersState, [p.id]: { ...s, secondsPlayed: s.secondsPlayed + 60 } } };
+                              const newTot = s.secondsPlayed + 60;
+                              const newShift = (s.currentShiftSeconds ?? s.secondsPlayed) + 60;
+                              return { ...prev, playersState: { ...prev.playersState, [p.id]: { ...s, secondsPlayed: newTot, currentShiftSeconds: newShift } } };
                             });
                           }} className="hover:text-[#004183] cursor-pointer select-none" title="Sumar 1 minuto">+1m</button>
                         </div>
@@ -2418,23 +2432,32 @@ export default function LiveTracker({
                           <button onClick={() => {
                             setMatchState(prev => {
                               const s = prev.playersState[p.id];
-                              return { ...prev, playersState: { ...prev.playersState, [p.id]: { ...s, secondsPlayed: Math.max(0, s.secondsPlayed - 10) } } };
+                              const newTot = Math.max(0, s.secondsPlayed - 10);
+                              const newShift = Math.max(0, (s.currentShiftSeconds ?? s.secondsPlayed) - 10);
+                              return { ...prev, playersState: { ...prev.playersState, [p.id]: { ...s, secondsPlayed: newTot, currentShiftSeconds: newShift } } };
                             });
                           }} className="hover:text-[#004183] cursor-pointer select-none" title="Restar 10 segundos">-10s</button>
                           <span className="opacity-50">|</span>
                           <button onClick={() => {
                             setMatchState(prev => {
                               const s = prev.playersState[p.id];
-                              return { ...prev, playersState: { ...prev.playersState, [p.id]: { ...s, secondsPlayed: s.secondsPlayed + 10 } } };
+                              const newTot = s.secondsPlayed + 10;
+                              const newShift = (s.currentShiftSeconds ?? s.secondsPlayed) + 10;
+                              return { ...prev, playersState: { ...prev.playersState, [p.id]: { ...s, secondsPlayed: newTot, currentShiftSeconds: newShift } } };
                             });
                           }} className="hover:text-[#004183] cursor-pointer select-none" title="Sumar 10 segundos">+10s</button>
                         </div>
                       </div>
 
-                      {/* Display Chronometer */}
-                      <span className="font-mono text-[10.5px] font-black text-slate-700 bg-slate-50 px-1 py-0.5 border border-slate-200/50 rounded leading-none">
-                        {displayChronometer(live.secondsPlayed)}
-                      </span>
+                      {/* Display Chronometer: Turno actual en pista + Total acumulado */}
+                      <div className="flex flex-col items-end">
+                        <span className="font-mono text-[10.5px] font-black text-slate-800 bg-slate-50 px-1 py-0.5 border border-slate-200/50 rounded leading-none" title="Tiempo de este turno en pista (desde que entró)">
+                          {displayChronometer(live.currentShiftSeconds ?? live.secondsPlayed)}
+                        </span>
+                        <span className="text-[7.5px] text-slate-400 font-bold font-mono mt-0.5" title="Total jugado en esta parte">
+                          Tot: {displayChronometer(live.secondsPlayed)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -2487,10 +2510,10 @@ export default function LiveTracker({
                       )}
                     </div>
 
-                    {/* Left: display time played inside the card */}
+                    {/* Left: display cumulative time played inside the bench card */}
                     {live.secondsPlayed > 0 && (
-                      <span className="absolute top-1 left-1 text-[7.5px] text-slate-500 font-bold bg-slate-100/90 px-1 py-0.5 rounded leading-none border border-slate-200/40">
-                        {Math.floor(live.secondsPlayed / 60)}'
+                      <span className="absolute top-1 left-1 text-[7.5px] text-slate-600 font-bold bg-slate-100/90 px-1 py-0.5 rounded leading-none border border-slate-200/40" title="Minutos totales acumulados en esta parte">
+                        {Math.floor(live.secondsPlayed / 60)}' tot
                       </span>
                     )}
 
@@ -2528,7 +2551,10 @@ export default function LiveTracker({
                         <div className="flex flex-col gap-0.5 max-h-[110px] overflow-y-auto">
                           {onCourtPlayers.map(oc => {
                             const ocState = matchState.playersState[oc.id];
-                            const elapsedMins = ocState ? Math.floor(ocState.secondsPlayed / 60) : 0;
+                            const shiftSecs = ocState ? (ocState.currentShiftSeconds ?? ocState.secondsPlayed) : 0;
+                            const shiftMins = Math.floor(shiftSecs / 60);
+                            const shiftRemainder = shiftSecs % 60;
+                            const totalMins = ocState ? Math.floor(ocState.secondsPlayed / 60) : 0;
                             return (
                               <button
                                 key={oc.id}
@@ -2540,7 +2566,9 @@ export default function LiveTracker({
                                 title={`Sustituir a #${oc.number} ${oc.alias || oc.name}`}
                               >
                                 <span className="truncate mr-1">#{oc.number} {oc.alias || oc.name}</span>
-                                <span className="shrink-0 text-[6.5px] opacity-75 font-mono">{elapsedMins}'</span>
+                                <span className="shrink-0 text-[6.5px] opacity-75 font-mono">
+                                  {shiftMins}:{shiftRemainder < 10 ? '0' : ''}{shiftRemainder} (Tot {totalMins}')
+                                </span>
                               </button>
                             );
                           })}

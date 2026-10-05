@@ -9,7 +9,7 @@ import {
   CheckCircle, Shield, FileText, UserCheck, ArrowRight, Table, Calendar, BarChart2
 } from 'lucide-react';
 import { Match, Player } from '../types';
-import { exportTeamReportToPDF, exportPlayerComparisonsToPDF } from '../utils/pdfGenerator';
+import { exportTeamReportToPDF, exportPlayerComparisonsToPDF, MINUTE_INTERVALS, getMatchMinuteFromShot, getMinuteIntervalFromMinute } from '../utils/pdfGenerator';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell, CartesianGrid 
 } from 'recharts';
@@ -21,6 +21,46 @@ interface StatsDashboardProps {
 
 // Colors for Pie Chart and Bar Charts
 const COLORS = ['#004183', '#FFD700', '#10b981', '#0ea5e9', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#14b8a6'];
+
+const CustomIntervalTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    const favor = payload.find((p: any) => p.dataKey === 'Goles a Favor')?.value || 0;
+    const rival = payload.find((p: any) => p.dataKey === 'Goles Rival')?.value || 0;
+    const isFirstHalf = ['0-5', '6-10', '11-15', '16-20'].includes(label);
+
+    return (
+      <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-lg text-xs font-sans min-w-[170px]">
+        <div className="flex items-center justify-between mb-1.5 border-b border-slate-100 pb-1">
+          <span className="font-extrabold text-slate-900 font-display">Minutos {label}'</span>
+          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+            {isFirstHalf ? '1ª Parte' : '2ª Parte'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-3 text-[#004183] font-bold py-0.5">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-[#004183]"></span>
+            Goles Talavera:
+          </span>
+          <span className="font-mono">{favor}</span>
+        </div>
+        <div className="flex items-center justify-between gap-3 text-rose-600 font-bold py-0.5">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-rose-600"></span>
+            Goles Rival:
+          </span>
+          <span className="font-mono">{rival}</span>
+        </div>
+        <div className="mt-1.5 pt-1 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
+          <span>Diferencia:</span>
+          <span className={`font-mono font-bold ${favor - rival > 0 ? 'text-emerald-600' : favor - rival < 0 ? 'text-rose-600' : 'text-slate-600'}`}>
+            {favor - rival > 0 ? `+${favor - rival}` : favor - rival}
+          </span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
 
 const CustomShotsTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -97,18 +137,21 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
   // States
   const [selectedSeason, setSelectedSeason] = useState<string>(currentRunSeason);
   const [matchTypeFilter, setMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('all');
+  const [venueFilter, setVenueFilter] = useState<'all' | 'local' | 'visitante'>('all');
+  const [goalIntervalView, setGoalIntervalView] = useState<'both' | 'local' | 'rival'>('both');
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [pdfNotification, setPdfNotification] = useState<{ show: boolean; name: string } | null>(null);
 
   const handleExportTeamReport = () => {
     const seasonLabel = selectedSeason === 'all' ? 'Todas las Temporadas' : selectedSeason;
     const typeLabel = matchTypeFilter === 'all' ? 'Todos los partidos' : matchTypeFilter === 'oficial' ? 'Partidos Oficiales' : 'Partidos Amistosos';
+    const venueLabel = venueFilter === 'all' ? '' : venueFilter === 'local' ? ' (Solo Local)' : ' (Solo Visitante)';
     setPdfNotification({
       show: true,
-      name: `Reporte de Temporada - Recopilación (${seasonLabel} - ${typeLabel})`
+      name: `Reporte de Temporada - Recopilación (${seasonLabel} - ${typeLabel}${venueLabel})`
     });
     setTimeout(() => setPdfNotification(null), 7500);
-    exportTeamReportToPDF(filteredMatches, players, selectedSeason, matchTypeFilter);
+    exportTeamReportToPDF(filteredMatches, players, selectedSeason, matchTypeFilter, venueFilter);
   };
 
   const handleExportComparisons = () => {
@@ -127,9 +170,15 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
     return getMatchSeason(m.date) === selectedSeason;
   });
 
-  const filteredMatches = seasonFilteredMatches.filter(m => {
+  const baseFilteredMatches = seasonFilteredMatches.filter(m => {
     if (matchTypeFilter === 'all') return true;
     return m.matchType === matchTypeFilter;
+  });
+
+  const filteredMatches = baseFilteredMatches.filter(m => {
+    if (venueFilter === 'all') return true;
+    const isLocal = (m.talaveraKit || '1ª Equipación') === '1ª Equipación';
+    return venueFilter === 'local' ? isLocal : !isLocal;
   });
 
   // Aggregate global team/match data
@@ -264,6 +313,50 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
     .filter(([_, count]) => count > 0)
     .map(([name, value]) => ({ name, value, percent: Math.round((value / rivalGoalsTotal) * 100) }));
 
+  // Minute intervals calculations (5-min intervals: 0-5, 6-10, ... 36-40)
+  const intervalGoalsLocal: Record<string, number> = {
+    '0-5': 0, '6-10': 0, '11-15': 0, '16-20': 0,
+    '21-25': 0, '26-30': 0, '31-35': 0, '36-40': 0
+  };
+  const intervalGoalsRival: Record<string, number> = {
+    '0-5': 0, '6-10': 0, '11-15': 0, '16-20': 0,
+    '21-25': 0, '26-30': 0, '31-35': 0, '36-40': 0
+  };
+
+  filteredMatches.forEach(m => {
+    if (m.shotsEvents && m.shotsEvents.length > 0) {
+      m.shotsEvents.forEach(s => {
+        if (s.type === 'goal') {
+          const minute = getMatchMinuteFromShot(s);
+          const interval = getMinuteIntervalFromMinute(minute);
+          if (s.team === 'local') {
+            intervalGoalsLocal[interval]++;
+          } else {
+            intervalGoalsRival[interval]++;
+          }
+        }
+      });
+    }
+  });
+
+  const goalsByIntervalChartData = MINUTE_INTERVALS.map(interval => ({
+    tramo: interval,
+    'Goles a Favor': intervalGoalsLocal[interval] || 0,
+    'Goles Rival': intervalGoalsRival[interval] || 0,
+    total: (intervalGoalsLocal[interval] || 0) + (intervalGoalsRival[interval] || 0)
+  }));
+
+  const totalIntervalGoalsLocal = Object.values(intervalGoalsLocal).reduce((a, b) => a + b, 0);
+  const totalIntervalGoalsRival = Object.values(intervalGoalsRival).reduce((a, b) => a + b, 0);
+
+  const local1stHalfGoals = ['0-5', '6-10', '11-15', '16-20'].reduce((acc, t) => acc + (intervalGoalsLocal[t] || 0), 0);
+  const rival1stHalfGoals = ['0-5', '6-10', '11-15', '16-20'].reduce((acc, t) => acc + (intervalGoalsRival[t] || 0), 0);
+  const local2ndHalfGoals = ['21-25', '26-30', '31-35', '36-40'].reduce((acc, t) => acc + (intervalGoalsLocal[t] || 0), 0);
+  const rival2ndHalfGoals = ['21-25', '26-30', '31-35', '36-40'].reduce((acc, t) => acc + (intervalGoalsRival[t] || 0), 0);
+
+  const bestScoringInterval = [...MINUTE_INTERVALS].sort((a, b) => (intervalGoalsLocal[b] || 0) - (intervalGoalsLocal[a] || 0))[0];
+  const worstConcedingInterval = [...MINUTE_INTERVALS].sort((a, b) => (intervalGoalsRival[b] || 0) - (intervalGoalsRival[a] || 0))[0];
+
   // Filter and sort rankings for leaderboard presentation
   const topScorersList = [...playerStatsList]
     .filter(p => p.goals > 0)
@@ -341,48 +434,85 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
       ) : (
         <div className="space-y-6">
           
-          {/* GENERAL FILTER BAR (SEASON DISPLAY & MATCH TYPE DUAL FILTER) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-            {/* Filter 1: Season Dropdown */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <span className="text-slate-700 text-xs font-black uppercase tracking-wider whitespace-nowrap flex items-center gap-1.5 shrink-0">
-                <Calendar size={14} className="text-[#004183]" />
-                Filtrar Temporada:
-              </span>
-              <select
-                value={selectedSeason}
-                onChange={e => setSelectedSeason(e.target.value)}
-                className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 focus:border-[#004183] rounded-xl px-3 py-2 text-xs font-bold text-[#004183] focus:outline-none focus:ring-1 focus:ring-[#004183] transition cursor-pointer"
-              >
-                <option value="all">🏆 Todas las Temporadas</option>
-                {uniqueSeasons.map(seasonString => (
-                  <option key={seasonString} value={seasonString}>
-                    📅 {seasonString}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Filter 2: Match Type Buttons */}
-            <div className="flex flex-wrap items-center justify-start md:justify-end gap-2 text-right">
-              <span className="text-slate-500 text-[11px] font-bold mr-1 block sm:inline">Tipo de Encuentro:</span>
-              {(['all', 'oficial', 'amistoso'] as const).map(f => (
-                <button
-                  key={f}
-                  onClick={() => setMatchTypeFilter(f)}
-                  className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase transition cursor-pointer ${
-                    matchTypeFilter === f
-                      ? 'bg-[#004183] text-white border-b-2 border-yellow-400 shadow-sm'
-                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
-                  }`}
+          {/* GENERAL FILTER BAR (SEASON DISPLAY & MATCH TYPE & VENUE DUAL FILTER) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+              {/* Filter 1: Season Dropdown */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <span className="text-slate-700 text-xs font-black uppercase tracking-wider whitespace-nowrap flex items-center gap-1.5 shrink-0">
+                  <Calendar size={14} className="text-[#004183]" />
+                  Temporada:
+                </span>
+                <select
+                  value={selectedSeason}
+                  onChange={e => setSelectedSeason(e.target.value)}
+                  className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 focus:border-[#004183] rounded-xl px-3 py-2 text-xs font-bold text-[#004183] focus:outline-none focus:ring-1 focus:ring-[#004183] transition cursor-pointer"
                 >
-                  {f === 'all' ? 'Todos' : f === 'oficial' ? 'Oficiales' : 'Amistosos'}
-                </button>
-              ))}
+                  <option value="all">🏆 Todas las Temporadas</option>
+                  {uniqueSeasons.map(seasonString => (
+                    <option key={seasonString} value={seasonString}>
+                      📅 {seasonString}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter 2: Match Type Buttons */}
+              <div className="flex flex-wrap items-center justify-start md:justify-center gap-1.5">
+                <span className="text-slate-500 text-[11px] font-bold mr-1">Tipo:</span>
+                {(['all', 'oficial', 'amistoso'] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setMatchTypeFilter(f)}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase transition cursor-pointer ${
+                      matchTypeFilter === f
+                        ? 'bg-[#004183] text-white border-b-2 border-yellow-400 shadow-sm'
+                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    {f === 'all' ? 'Todos' : f === 'oficial' ? 'Oficiales' : 'Amistosos'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Filter 3: Venue Buttons */}
+              <div className="flex flex-wrap items-center justify-start md:justify-end gap-1.5">
+                <span className="text-slate-500 text-[11px] font-bold mr-1">Sede:</span>
+                {(['all', 'local', 'visitante'] as const).map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setVenueFilter(v)}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase transition cursor-pointer flex items-center gap-1 ${
+                      venueFilter === v
+                        ? 'bg-[#004183] text-white border-b-2 border-yellow-400 shadow-sm'
+                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    {v === 'all' ? 'Todas' : v === 'local' ? '🏠 Local' : '✈️ Visitante'}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="md:col-span-2 border-t border-slate-50 pt-3 flex justify-between items-center text-[10px] text-slate-400 font-mono">
-              <span>Filtro activo: <strong className="text-[#004183]">{selectedSeason === 'all' ? 'Histórico Completo' : selectedSeason} (Partidos {matchTypeFilter === 'all' ? 'Todos' : matchTypeFilter})</strong></span>
+            <div className="border-t border-slate-100 pt-3 flex flex-wrap justify-between items-center gap-2 text-[10px] text-slate-400 font-mono">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span>
+                  Filtro activo:{' '}
+                  <strong className="text-[#004183]">
+                    {selectedSeason === 'all' ? 'Histórico Completo' : selectedSeason} (Partidos {matchTypeFilter === 'all' ? 'Todos' : matchTypeFilter}
+                    {venueFilter === 'all' ? '' : venueFilter === 'local' ? ' • 🏠 Solo Local' : ' • ✈️ Solo Visitante'})
+                  </strong>
+                </span>
+                {venueFilter !== 'all' && (
+                  <button
+                    onClick={() => setVenueFilter('all')}
+                    className="text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2 py-0.5 rounded-md border border-rose-200 transition cursor-pointer"
+                    title="Quitar filtro de sede y ver todos los partidos"
+                  >
+                    ✕ Quitar filtro {venueFilter === 'local' ? 'Local' : 'Visitante'}
+                  </button>
+                )}
+              </div>
               <span>Visualizando <strong className="text-blue-900 font-bold">{totalMatches}</strong> de <strong className="font-bold">{matches.length}</strong> partidos en el historial</span>
             </div>
           </div>
@@ -391,9 +521,17 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
             <div className="bg-white rounded-2xl p-12 text-center border border-dashed border-slate-200">
               <Trophy size={40} className="mx-auto text-slate-300 mb-2 opacity-40" />
               <h4 className="text-sm font-bold text-slate-700 font-display">Sin partidos registrados para este filtro</h4>
-              <p className="text-xs text-slate-450 mt-1">
-                No figura ningún récord que cumpla los criterios de <span className="font-bold text-[#004183]">{selectedSeason === 'all' ? 'Cualquier Temporada' : selectedSeason}</span> de tipo <span className="font-bold text-[#004183] uppercase">{matchTypeFilter === 'all' ? 'Todos' : matchTypeFilter === 'oficial' ? 'Oficial' : 'Amistoso'}</span>.
+              <p className="text-xs text-slate-450 mt-1 max-w-md mx-auto">
+                No figura ningún récord que cumpla los criterios de <span className="font-bold text-[#004183]">{selectedSeason === 'all' ? 'Cualquier Temporada' : selectedSeason}</span> de tipo <span className="font-bold text-[#004183] uppercase">{matchTypeFilter === 'all' ? 'Todos' : matchTypeFilter === 'oficial' ? 'Oficial' : 'Amistoso'}</span>{venueFilter !== 'all' ? <span> y jugado como <span className="font-bold text-[#004183] uppercase">{venueFilter === 'local' ? 'Local' : 'Visitante'}</span></span> : ''}.
               </p>
+              {venueFilter !== 'all' && (
+                <button
+                  onClick={() => setVenueFilter('all')}
+                  className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold bg-[#004183] text-white px-4 py-2 rounded-xl hover:bg-[#002f61] transition cursor-pointer shadow-sm"
+                >
+                  Ver todos los partidos (Quitar filtro de sede)
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-6">
@@ -468,10 +606,10 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
 
               {/* SECTION A2: LOCAL vs VISITANTE BREAKDOWN */}
               {(() => {
-                const localMatches = filteredMatches.filter(m => (m.talaveraKit || '1ª Equipación') === '1ª Equipación');
-                const visitanteMatches = filteredMatches.filter(m => m.talaveraKit === '2ª Equipación');
+                const localMatches = baseFilteredMatches.filter(m => (m.talaveraKit || '1ª Equipación') === '1ª Equipación');
+                const visitanteMatches = baseFilteredMatches.filter(m => m.talaveraKit === '2ª Equipación');
 
-                const calcStats = (matches: typeof filteredMatches) => ({
+                const calcStats = (matches: typeof baseFilteredMatches) => ({
                   total: matches.length,
                   wins: matches.filter(m => m.result === 'W').length,
                   draws: matches.filter(m => m.result === 'D').length,
@@ -485,53 +623,103 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
 
                 if (ls.total === 0 && vs.total === 0) return null;
 
-                const HalfCard = ({ emoji, label, bgClass, borderClass, textClass, accentClass, stats }: {
+                const HalfCard = ({ emoji, label, bgClass, borderClass, textClass, accentClass, stats, isSelected, onClick, targetVenue }: {
                   emoji: string; label: string; bgClass: string; borderClass: string; textClass: string; accentClass: string;
                   stats: ReturnType<typeof calcStats>;
-                }) => (
-                  <div className={`rounded-2xl p-5 border-2 ${bgClass} ${borderClass} flex flex-col gap-3`}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">{emoji}</span>
-                      <span className={`text-xs font-black uppercase tracking-widest ${textClass}`}>{label}</span>
-                      <span className={`ml-auto text-[10px] font-bold ${accentClass} px-2 py-0.5 rounded-full`}>
-                        {stats.total} {stats.total === 1 ? 'partido' : 'partidos'}
-                      </span>
-                    </div>
-
-                    {stats.total === 0 ? (
-                      <p className="text-xs text-slate-400 italic">Sin partidos registrados</p>
-                    ) : (
-                      <>
-                        <div className="grid grid-cols-3 gap-2 text-center">
-                          <div className="bg-white/70 rounded-xl py-2 border border-white/60">
-                            <span className="block text-[9px] uppercase tracking-wider text-emerald-600 font-bold">Victorias</span>
-                            <span className="block text-2xl font-black text-emerald-700 font-display">{stats.wins}</span>
-                          </div>
-                          <div className="bg-white/70 rounded-xl py-2 border border-white/60">
-                            <span className="block text-[9px] uppercase tracking-wider text-slate-500 font-bold">Empates</span>
-                            <span className="block text-2xl font-black text-slate-700 font-display">{stats.draws}</span>
-                          </div>
-                          <div className="bg-white/70 rounded-xl py-2 border border-white/60">
-                            <span className="block text-[9px] uppercase tracking-wider text-rose-500 font-bold">Derrotas</span>
-                            <span className="block text-2xl font-black text-rose-700 font-display">{stats.losses}</span>
-                          </div>
-                        </div>
-                        <div className="flex justify-between items-center text-xs pt-2 border-t border-white/40">
-                          <span className={`${textClass} font-semibold`}>Goles: <strong>{stats.goalsFor}</strong> a favor / <strong>{stats.goalsAgainst}</strong> en contra</span>
-                          <span className={`font-mono font-black ${accentClass} px-2 py-0.5 rounded-lg text-[11px]`}>
-                            {stats.total > 0 ? Math.round((stats.wins / stats.total) * 100) : 0}% victorias
+                  isSelected: boolean;
+                  onClick: () => void;
+                  targetVenue: 'local' | 'visitante';
+                }) => {
+                  return (
+                    <div
+                      onClick={onClick}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+                      title={isSelected ? "Filtro activo. Haz clic para desactivarlo y ver todos los partidos." : `Haz clic para filtrar y ver solo las estadísticas de ${targetVenue === 'local' ? 'Local' : 'Visitante'}.`}
+                      className={`rounded-2xl p-5 border-2 transition-all cursor-pointer relative select-none flex flex-col gap-3 ${bgClass} ${
+                        isSelected
+                          ? `ring-4 ${targetVenue === 'local' ? 'ring-sky-400 border-sky-500 shadow-md' : 'ring-pink-400 border-pink-500 shadow-md'} scale-[1.01]`
+                          : `${borderClass} hover:shadow-md hover:scale-[1.008] ${venueFilter !== 'all' ? 'opacity-70 hover:opacity-100' : ''}`
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xl">{emoji}</span>
+                        <span className={`text-xs font-black uppercase tracking-widest ${textClass}`}>{label}</span>
+                        {isSelected ? (
+                          <span className={`ml-auto text-[9.5px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                            targetVenue === 'local' ? 'bg-sky-600 text-white' : 'bg-pink-600 text-white'
+                          } flex items-center gap-1 shadow-xs`}>
+                            ✓ Activo ({stats.total})
                           </span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
+                        ) : (
+                          <span className={`ml-auto text-[10px] font-bold ${accentClass} px-2 py-0.5 rounded-full`}>
+                            {stats.total} {stats.total === 1 ? 'partido' : 'partidos'}
+                          </span>
+                        )}
+                      </div>
+
+                      {stats.total === 0 ? (
+                        <p className="text-xs text-slate-400 italic">Sin partidos registrados</p>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="bg-white/70 rounded-xl py-2 border border-white/60">
+                              <span className="block text-[9px] uppercase tracking-wider text-emerald-600 font-bold">Victorias</span>
+                              <span className="block text-2xl font-black text-emerald-700 font-display">{stats.wins}</span>
+                            </div>
+                            <div className="bg-white/70 rounded-xl py-2 border border-white/60">
+                              <span className="block text-[9px] uppercase tracking-wider text-slate-500 font-bold">Empates</span>
+                              <span className="block text-2xl font-black text-slate-700 font-display">{stats.draws}</span>
+                            </div>
+                            <div className="bg-white/70 rounded-xl py-2 border border-white/60">
+                              <span className="block text-[9px] uppercase tracking-wider text-rose-500 font-bold">Derrotas</span>
+                              <span className="block text-2xl font-black text-rose-700 font-display">{stats.losses}</span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center text-xs pt-2 border-t border-white/40">
+                            <span className={`${textClass} font-semibold`}>Goles: <strong>{stats.goalsFor}</strong> a favor / <strong>{stats.goalsAgainst}</strong> en contra</span>
+                            <span className={`font-mono font-black ${accentClass} px-2 py-0.5 rounded-lg text-[11px]`}>
+                              {stats.total > 0 ? Math.round((stats.wins / stats.total) * 100) : 0}% victorias
+                            </span>
+                          </div>
+                        </>
+                      )}
+
+                      <div className="pt-1 flex items-center justify-between text-[10.5px]">
+                        <span className={`font-semibold ${isSelected ? (targetVenue === 'local' ? 'text-sky-700' : 'text-pink-700') : 'text-slate-400'}`}>
+                          {isSelected ? '🎯 Mostrando solo estos partidos (clic para ver todo)' : `👆 Pulsa para ver solo datos de ${targetVenue === 'local' ? 'local' : 'visitante'}`}
+                        </span>
+                        {isSelected && (
+                          <span className="text-[10px] font-bold text-slate-500 underline ml-auto">
+                            Desactivar
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                };
 
                 return (
                   <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4">
-                      <span className="w-2 md:w-2.5 h-5 bg-[#004183] rounded-full"></span>
-                      <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">Rendimiento Local vs. Visitante</h4>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 md:w-2.5 h-5 bg-[#004183] rounded-full"></span>
+                        <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">Rendimiento Local vs. Visitante</h4>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          💡 Haz clic en una tarjeta para filtrar todo el panel
+                        </span>
+                        {venueFilter !== 'all' && (
+                          <button
+                            onClick={() => setVenueFilter('all')}
+                            className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                          >
+                            ✕ Ver todos
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <HalfCard
@@ -542,6 +730,9 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
                         textClass="text-sky-800"
                         accentClass="bg-sky-100 text-sky-700"
                         stats={ls}
+                        isSelected={venueFilter === 'local'}
+                        onClick={() => setVenueFilter(prev => prev === 'local' ? 'all' : 'local')}
+                        targetVenue="local"
                       />
                       <HalfCard
                         emoji="✈️"
@@ -551,6 +742,9 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
                         textClass="text-pink-800"
                         accentClass="bg-pink-100 text-pink-700"
                         stats={vs}
+                        isSelected={venueFilter === 'visitante'}
+                        onClick={() => setVenueFilter(prev => prev === 'visitante' ? 'all' : 'visitante')}
+                        targetVenue="visitante"
                       />
                     </div>
                   </div>
@@ -743,6 +937,150 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
                         </PieChart>
                       </ResponsiveContainer>
                     )}
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION B.3: GOALS BY MINUTE INTERVALS (TEMPORAL GOAL DISTRIBUTION) */}
+              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 md:w-2.5 h-5 bg-[#004183] rounded-full"></span>
+                    <div>
+                      <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                        Distribución de Goles por Tramos de Minutos
+                        <span className="bg-blue-50 text-[#004183] text-[9.5px] px-2 py-0.5 rounded-full font-bold">
+                          Intervalos de 5'
+                        </span>
+                      </h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Momento del partido en el que se marcaron y encajaron los goles (1ª y 2ª parte)
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Filter selector: Both, Local only, Rival only */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-[10.5px]">
+                    <button
+                      onClick={() => setGoalIntervalView('both')}
+                      className={`px-3 py-1 font-bold rounded-lg transition cursor-pointer ${
+                        goalIntervalView === 'both' ? 'bg-[#004183] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Ambos
+                    </button>
+                    <button
+                      onClick={() => setGoalIntervalView('local')}
+                      className={`px-3 py-1 font-bold rounded-lg transition cursor-pointer ${
+                        goalIntervalView === 'local' ? 'bg-[#004183] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Solo A Favor
+                    </button>
+                    <button
+                      onClick={() => setGoalIntervalView('rival')}
+                      className={`px-3 py-1 font-bold rounded-lg transition cursor-pointer ${
+                        goalIntervalView === 'rival' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Solo Rival
+                    </button>
+                  </div>
+                </div>
+
+                {/* Halves Indicator Banners */}
+                <div className="grid grid-cols-2 gap-2 mb-2 text-center text-[10px] font-bold">
+                  <div className="bg-slate-50 border border-slate-100 rounded-lg py-1.5 text-slate-600">
+                    ⏱️ 1ª PARTE (Min 0' a 20') • <span className="text-[#004183]">{local1stHalfGoals} a favor</span> / <span className="text-rose-600">{rival1stHalfGoals} rival</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 rounded-lg py-1.5 text-slate-600">
+                    ⏱️ 2ª PARTE (Min 21' a 40') • <span className="text-[#004183]">{local2ndHalfGoals} a favor</span> / <span className="text-rose-600">{rival2ndHalfGoals} rival</span>
+                  </div>
+                </div>
+
+                {totalIntervalGoalsLocal === 0 && totalIntervalGoalsRival === 0 ? (
+                  <div className="h-64 flex items-center justify-center text-center text-slate-400 p-4 border border-dashed border-slate-100 rounded-2xl">
+                    <div>
+                      <Clock size={32} className="mx-auto text-slate-300 mb-2 opacity-50" />
+                      <p className="text-xs font-bold text-slate-600">Sin eventos de goles con minutaje registrados</p>
+                      <p className="text-[10px] text-slate-400 mt-1 max-w-xs mx-auto">
+                        A medida que se registren goles durante los partidos en vivo, se organizarán automáticamente por tramos temporales.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-72">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={goalsByIntervalChartData} margin={{ top: 20, right: 15, left: -15, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis
+                          dataKey="tramo"
+                          stroke="#94a3b8"
+                          fontSize={11}
+                          fontWeight="bold"
+                          tickLine={false}
+                        />
+                        <YAxis
+                          allowDecimals={false}
+                          stroke="#94a3b8"
+                          fontSize={10}
+                          tickLine={false}
+                        />
+                        <Tooltip content={<CustomIntervalTooltip />} />
+                        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                        {(goalIntervalView === 'both' || goalIntervalView === 'local') && (
+                          <Bar
+                            dataKey="Goles a Favor"
+                            fill="#004183"
+                            radius={[4, 4, 0, 0]}
+                            maxBarSize={32}
+                          />
+                        )}
+                        {(goalIntervalView === 'both' || goalIntervalView === 'rival') && (
+                          <Bar
+                            dataKey="Goles Rival"
+                            fill="#e11d48"
+                            radius={[4, 4, 0, 0]}
+                            maxBarSize={32}
+                          />
+                        )}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Footer Insight Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100 text-xs">
+                  <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3 flex flex-col justify-between">
+                    <span className="text-[9.5px] uppercase font-bold text-blue-900 tracking-wider">Tramo Más Goleador (Equipo)</span>
+                    <p className="text-base font-black text-blue-950 font-display mt-1">
+                      Minutos {bestScoringInterval}'
+                    </p>
+                    <span className="text-[10px] text-blue-700 font-semibold mt-0.5">
+                      {intervalGoalsLocal[bestScoringInterval] || 0} goles marcados ({totalIntervalGoalsLocal > 0 ? Math.round(((intervalGoalsLocal[bestScoringInterval] || 0) / totalIntervalGoalsLocal) * 100) : 0}%)
+                    </span>
+                  </div>
+
+                  <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-3 flex flex-col justify-between">
+                    <span className="text-[9.5px] uppercase font-bold text-rose-900 tracking-wider">Tramo Con Más Goles Recibidos</span>
+                    <p className="text-base font-black text-rose-950 font-display mt-1">
+                      Minutos {worstConcedingInterval}'
+                    </p>
+                    <span className="text-[10px] text-rose-700 font-semibold mt-0.5">
+                      {intervalGoalsRival[worstConcedingInterval] || 0} goles encajados ({totalIntervalGoalsRival > 0 ? Math.round(((intervalGoalsRival[worstConcedingInterval] || 0) / totalIntervalGoalsRival) * 100) : 0}%)
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 flex flex-col justify-between">
+                    <span className="text-[9.5px] uppercase font-bold text-slate-600 tracking-wider">Efectividad 1ª vs 2ª Parte</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className="text-sm font-black text-[#004183] font-mono">1ªP: {local1stHalfGoals}G</span>
+                      <span className="text-slate-300">/</span>
+                      <span className="text-sm font-black text-[#004183] font-mono">2ªP: {local2ndHalfGoals}G</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-medium mt-0.5">
+                      {local2ndHalfGoals >= local1stHalfGoals ? 'Mayor pegada en la segunda mitad' : 'Mayor efectividad en la primera mitad'}
+                    </span>
                   </div>
                 </div>
               </div>
