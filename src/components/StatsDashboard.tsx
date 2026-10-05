@@ -468,7 +468,7 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
 
               {/* SECTION A2: LOCAL vs VISITANTE BREAKDOWN */}
               {(() => {
-                const localMatches = filteredMatches.filter(m => m.talaveraKit === '1ª Equipación');
+                const localMatches = filteredMatches.filter(m => (m.talaveraKit || '1ª Equipación') === '1ª Equipación');
                 const visitanteMatches = filteredMatches.filter(m => m.talaveraKit === '2ª Equipación');
 
                 const calcStats = (matches: typeof filteredMatches) => ({

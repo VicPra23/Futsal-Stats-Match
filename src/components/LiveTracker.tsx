@@ -101,7 +101,8 @@ export default function LiveTracker({
       cloned.rivalFouls2ndHalf = cloned.rivalFouls2ndHalf ?? 0;
       cloned.shotsEvents = cloned.shotsEvents || [];
       cloned.titulares = cloned.titulares || [];
-      cloned.suplentes = cloned.suplentes || [];
+      // Clean any accidental duplicate between titulares and suplentes
+      cloned.suplentes = (cloned.suplentes || []).filter(id => !cloned.titulares.includes(id));
       cloned.isPreMatch = cloned.isPreMatch ?? true;
       cloned.periodDurationMinutes = cloned.periodDurationMinutes ?? 20;
       cloned.attackDirection = cloned.attackDirection || 'derecha';
@@ -1272,11 +1273,12 @@ export default function LiveTracker({
 
   const isTalaveraAttackingRight = matchState.attackDirection !== 'izquierda';
 
-  const onCourtPlayers = (matchState.titulares || [])
-    .map(id => players.find(p => p.id === id))
-    .filter((p): p is Player => !!(p && p.isActive && matchState.playersState[p.id]?.isOnCourt));
+  const convocatedIds = [...new Set([...(matchState.titulares || []), ...(matchState.suplentes || [])])].filter(Boolean);
+  const onCourtPlayers = players
+    .filter(p => p.isActive && convocatedIds.includes(p.id) && matchState.playersState[p.id]?.isOnCourt)
+    .sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
   const benchTeam = players
-    .filter(p => !matchState.playersState[p.id]?.isOnCourt && p.isActive && (matchState.titulares.includes(p.id) || matchState.suplentes.includes(p.id)))
+    .filter(p => !matchState.playersState[p.id]?.isOnCourt && p.isActive && convocatedIds.includes(p.id))
     .sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
 
   // -------------------------------------------------------------
@@ -1291,10 +1293,12 @@ export default function LiveTracker({
     const handleSetStarter = (index: number, playerId: string) => {
       setMatchState(prev => {
         const nextTitulares = [...prev.titulares];
-        const previousId = nextTitulares[index];
+        while (nextTitulares.length < 5) {
+          nextTitulares.push('');
+        }
         nextTitulares[index] = playerId;
-        // ensure player is not also a suplente
-        const nextSuplentes = prev.suplentes.filter(id => id !== playerId);
+        // ensure player is removed from suplentes if they were selected as a starter
+        const nextSuplentes = playerId ? prev.suplentes.filter(id => id !== playerId) : prev.suplentes;
         return { ...prev, titulares: nextTitulares, suplentes: nextSuplentes };
       });
     };
@@ -1307,8 +1311,8 @@ export default function LiveTracker({
         return;
       }
       setMatchState(prev => {
-        // Filter out if they are starter
-        const nextStarters = prev.titulares.filter(t => t !== playerId);
+        // Clear starter slot if they were a starter (without shifting other starter positions)
+        const nextStarters = prev.titulares.map(t => t === playerId ? '' : t);
         return {
           ...prev,
           titulares: nextStarters,
@@ -1741,7 +1745,7 @@ export default function LiveTracker({
                {matchState.half}ª PARTE
             </span>
             <span className="text-xs text-slate-400 font-bold tracking-widest bg-slate-850/60 px-2 py-0.5 rounded shrink-0">
-              {matchState.talaveraKit === '1ª Equipación' ? '🏠 Local' : '✈️ Visitante'}
+              {matchState.talaveraKit === '1ª Equipación' ? 'Local' : 'Visitante'}
             </span>
             <span className="text-slate-600 font-bold">•</span>
             <div className="text-base font-black text-white flex items-center gap-1 font-display">

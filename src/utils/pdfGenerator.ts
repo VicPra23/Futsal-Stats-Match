@@ -298,9 +298,10 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
 
   // HEADER: Official Shield, Rival, and Marcador Final Summary
   const titleStr = 'INFORME COMPLETO DE PARTIDO';
+  const kitLabel = (match.talaveraKit || '1ª Equipación') === '1ª Equipación' ? 'Local' : 'Visitante';
   const subtitleStr = match.matchType === 'amistoso'
-    ? `vs ${match.rival} • Amistoso • ${match.date}`
-    : `vs ${match.rival} • Jornada ${match.jornada} • ${match.date}`;
+    ? `vs ${match.rival} • Amistoso • ${kitLabel} • ${match.date}`
+    : `vs ${match.rival} • Jornada ${match.jornada} • ${kitLabel} • ${match.date}`;
   drawPageHeader(doc, titleStr, subtitleStr, 1, totalPages, logoBase64);
 
   // --- UPPER HALF: TWO COLUMNS (1st & 2nd HALF SIDE-BY-SIDE) ---
@@ -323,24 +324,32 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
 
   const goals1stLocal = match.shotsEvents.filter(s => s.team === 'local' && s.type === 'goal' && s.half === 1).length;
   const goals1stRival = match.shotsEvents.filter(s => s.team === 'rival' && s.type === 'goal' && s.half === 1).length;
+  const shots1stLocal = match.shotsEvents.filter(s => s.team === 'local' && s.half === 1).length;
+  const shots1stLocalIn = match.shotsEvents.filter(s => s.team === 'local' && s.half === 1 && (s.type === 'on_target' || s.type === 'goal')).length;
+  const shots1stLocalOut = match.shotsEvents.filter(s => s.team === 'local' && s.half === 1 && s.type === 'out').length;
+  const shots1stRival = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 1).length;
+  const shots1stRivalIn = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 1 && (s.type === 'on_target' || s.type === 'goal')).length;
+  const shots1stRivalOut = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 1 && s.type === 'out').length;
   const fouls1stLocal = match.localFouls1stHalf || 0;
   const fouls1stRival = match.rivalFouls1stHalf || 0;
 
   doc.setTextColor(51, 65, 85);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.text(`Marcador parcial: Equipo ${goals1stLocal} - ${goals1stRival} Rival`, col1X + 4, colY + 11.5);
+  doc.setFontSize(8);
+  doc.text(`Marcador parcial: Equipo ${goals1stLocal} - ${goals1stRival} Rival`, col1X + 4, colY + 11);
+  
+  doc.setFontSize(7.2);
+  doc.text(`Tiros 1ª P.: Eq. ${shots1stLocal} (${shots1stLocalIn} dentro / ${shots1stLocalOut} fuera) • Riv. ${shots1stRival} (${shots1stRivalIn} d. / ${shots1stRivalOut} f.)`, col1X + 4, colY + 15);
   
   const bonusLocal1st = fouls1stLocal >= 5 ? 'SÍ' : 'No';
   const bonusRival1st = fouls1stRival >= 5 ? 'SÍ' : 'No';
 
+  doc.setFontSize(8);
   doc.setTextColor(71, 85, 105);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Faltas Equipo: ${fouls1stLocal} (Bonus: ${bonusLocal1st})`, col1X + 4, colY + 16.5);
-  doc.text(`Faltas Rival: ${fouls1stRival} (Bonus: ${bonusRival1st})`, col1X + 4, colY + 21.5);
+  doc.text(`Faltas: Equipo ${fouls1stLocal} (${bonusLocal1st}) • Rival ${fouls1stRival} (${bonusRival1st})`, col1X + 4, colY + 19);
 
   // Draw 1st Half Shot Map
-  drawFutsalPitchPDF(doc, col1X + 3, colY + 24, 80, 40, match.shotsEvents, 1, match.rivalColor, match.talaveraKit);
+  drawFutsalPitchPDF(doc, col1X + 3, colY + 23, 80, 40, match.shotsEvents, 1, match.rivalColor, match.talaveraKit);
 
 
   // 2ª PARTE (Derecha Column card)
@@ -354,24 +363,32 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
 
   const goals2ndLocal = match.shotsEvents.filter(s => s.team === 'local' && s.type === 'goal' && s.half === 2).length;
   const goals2ndRival = match.shotsEvents.filter(s => s.team === 'rival' && s.type === 'goal' && s.half === 2).length;
+  const shots2ndLocal = match.shotsEvents.filter(s => s.team === 'local' && s.half === 2).length;
+  const shots2ndLocalIn = match.shotsEvents.filter(s => s.team === 'local' && s.half === 2 && (s.type === 'on_target' || s.type === 'goal')).length;
+  const shots2ndLocalOut = match.shotsEvents.filter(s => s.team === 'local' && s.half === 2 && s.type === 'out').length;
+  const shots2ndRival = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 2).length;
+  const shots2ndRivalIn = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 2 && (s.type === 'on_target' || s.type === 'goal')).length;
+  const shots2ndRivalOut = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 2 && s.type === 'out').length;
   const fouls2ndLocal = match.localFouls2ndHalf || 0;
   const fouls2ndRival = match.rivalFouls2ndHalf || 0;
 
   doc.setTextColor(51, 65, 85);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.text(`Marcador parcial: Equipo ${goals2ndLocal} - ${goals2ndRival} Rival`, col2X + 4, colY + 11.5);
+  doc.setFontSize(8);
+  doc.text(`Marcador parcial: Equipo ${goals2ndLocal} - ${goals2ndRival} Rival`, col2X + 4, colY + 11);
+  
+  doc.setFontSize(7.2);
+  doc.text(`Tiros 2ª P.: Eq. ${shots2ndLocal} (${shots2ndLocalIn} dentro / ${shots2ndLocalOut} fuera) • Riv. ${shots2ndRival} (${shots2ndRivalIn} d. / ${shots2ndRivalOut} f.)`, col2X + 4, colY + 15);
 
   const bonusLocal2nd = fouls2ndLocal >= 5 ? 'SÍ' : 'No';
   const bonusRival2nd = fouls2ndRival >= 5 ? 'SÍ' : 'No';
 
+  doc.setFontSize(8);
   doc.setTextColor(71, 85, 105);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Faltas Equipo: ${fouls2ndLocal} (Bonus: ${bonusLocal2nd})`, col2X + 4, colY + 16.5);
-  doc.text(`Faltas Rival: ${fouls2ndRival} (Bonus: ${bonusRival2nd})`, col2X + 4, colY + 21.5);
+  doc.text(`Faltas: Equipo ${fouls2ndLocal} (${bonusLocal2nd}) • Rival ${fouls2ndRival} (${bonusRival2nd})`, col2X + 4, colY + 19);
 
   // Draw 2nd Half Shot Map
-  drawFutsalPitchPDF(doc, col2X + 3, colY + 24, 80, 40, match.shotsEvents, 2, match.rivalColor, match.talaveraKit);
+  drawFutsalPitchPDF(doc, col2X + 3, colY + 23, 80, 40, match.shotsEvents, 2, match.rivalColor, match.talaveraKit);
 
 
   // --- LOWER HALF (PAGE 1): ESTADÍSTICAS COLECTIVAS (Left) vs TIMELINE DE GOLES (Right) ---
@@ -411,7 +428,9 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
   const collectiveHeaders = [['Indicador', 'LCL', 'RVL']];
   const collectiveRows = [
     ['Goles Marcados', localGoalsTotal.toString(), rivalGoalsTotal.toString()],
-    ['Tiros Registrados', localShotsTotal.toString(), rivalShotsTotal.toString()],
+    ['Tiros 1ª Parte', shots1stLocal.toString(), shots1stRival.toString()],
+    ['Tiros 2ª Parte', shots2ndLocal.toString(), shots2ndRival.toString()],
+    ['Tiros Totales', localShotsTotal.toString(), rivalShotsTotal.toString()],
     ['Tiros a Puerta', localShotsOnTarget.toString(), rivalShotsOnTarget.toString()],
     ['Tiros Fuera', localShotsOut.toString(), rivalShotsOut.toString()],
     ['Faltas Acum. 1ª P.', (match.localFouls1stHalf || 0).toString(), (match.rivalFouls1stHalf || 0).toString()],
@@ -731,6 +750,12 @@ export const exportTeamReportToPDF = (
   const totalGoalsAgainst = matches.reduce((sum, m) => sum + m.goalsAgainst, 0);
   const totalShots = matches.reduce((sum, m) => sum + (m.teamShots || 0), 0);
   const totalTeamYellows = matches.reduce((sum, m) => sum + (m.teamYellows || 0), 0);
+  const totalShots1st = matches.reduce((acc, m) => {
+    return acc + (m.shotsEvents ? m.shotsEvents.filter(s => s.team === 'local' && s.half === 1).length : 0);
+  }, 0);
+  const totalShots2nd = matches.reduce((acc, m) => {
+    return acc + (m.shotsEvents ? m.shotsEvents.filter(s => s.team === 'local' && s.half === 2).length : 0);
+  }, 0);
 
   const totalShotsOnTarget = matches.reduce((acc, m) => {
     if (m.shotsEvents && m.shotsEvents.length > 0) {
@@ -915,17 +940,18 @@ export const exportTeamReportToPDF = (
   doc.text('TIROS', leftX3 + 4, boxY + 5);
 
   doc.setTextColor(190, 140, 10); // gold/amber
-  doc.setFontSize(11);
+  doc.setFontSize(10.5);
   doc.setFont('helvetica', 'bold');
-  doc.text(`${totalShots} Totales`, leftX3 + 4, boxY + 13);
+  doc.text(`${totalShots} Totales`, leftX3 + 4, boxY + 11.5);
 
   doc.setTextColor(71, 85, 105);
-  doc.setFontSize(7);
+  doc.setFontSize(6.5);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Dentro: ${totalShotsOnTarget}  •  Fuera: ${totalShotsOut}`, leftX3 + 4, boxY + 19.5);
+  doc.text(`1ª P: ${totalShots1st}  •  2ª P: ${totalShots2nd}`, leftX3 + 4, boxY + 16.5);
+  doc.text(`Dentro: ${totalShotsOnTarget}  •  Fuera: ${totalShotsOut}`, leftX3 + 4, boxY + 20.5);
 
   doc.setTextColor(0, 65, 131); // brand blue
-  doc.setFontSize(7);
+  doc.setFontSize(6.5);
   doc.setFont('helvetica', 'bold');
   const shotsPerGoal = totalGoalsFor > 0 ? (totalShots / totalGoalsFor).toFixed(1) : '0';
   doc.text(`Tiros / Gol: ${shotsPerGoal} de media`, leftX3 + 4, boxY + 24.5);
