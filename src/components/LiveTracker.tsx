@@ -2134,7 +2134,7 @@ export default function LiveTracker({
                     </div>
 
                     <p className="text-[8.5px] font-black uppercase text-slate-500 tracking-wider text-center">
-                      Tipo de Gol (3x5 • Toca para guardar):
+                      Tipo de Gol:
                     </p>
 
                     <div className="grid grid-cols-3 gap-1.5 max-h-64 overflow-y-auto pr-0.5 custom-scrollbar">
@@ -2543,8 +2543,8 @@ export default function LiveTracker({
 
                     {/* Left: display cumulative time played inside the bench card */}
                     {live.secondsPlayed > 0 && (
-                      <span className="absolute top-1 left-1 text-[7.5px] text-slate-600 font-bold bg-slate-100/90 px-1 py-0.5 rounded leading-none border border-slate-200/40" title="Minutos totales acumulados en esta parte">
-                        {Math.floor(live.secondsPlayed / 60)}' tot
+                      <span className="absolute top-1 left-1 text-[7.5px] text-slate-600 font-bold font-mono bg-slate-100/90 px-1 py-0.5 rounded leading-none border border-slate-200/40" title="Tiempo total jugado en esta parte">
+                        {displayChronometer(live.secondsPlayed)}
                       </span>
                     )}
 
@@ -2583,9 +2583,6 @@ export default function LiveTracker({
                           {onCourtPlayers.map(oc => {
                             const ocState = matchState.playersState[oc.id];
                             const shiftSecs = ocState ? (ocState.currentShiftSeconds ?? ocState.secondsPlayed) : 0;
-                            const shiftMins = Math.floor(shiftSecs / 60);
-                            const shiftRemainder = shiftSecs % 60;
-                            const totalMins = ocState ? Math.floor(ocState.secondsPlayed / 60) : 0;
                             return (
                               <button
                                 key={oc.id}
@@ -2598,7 +2595,7 @@ export default function LiveTracker({
                               >
                                 <span className="truncate mr-1">#{oc.number} {oc.alias || oc.name}</span>
                                 <span className="shrink-0 text-[6.5px] opacity-75 font-mono">
-                                  {shiftMins}:{shiftRemainder < 10 ? '0' : ''}{shiftRemainder} (Tot {totalMins}')
+                                  {displayChronometer(shiftSecs)} (Tot {displayChronometer(ocState?.secondsPlayed || 0)})
                                 </span>
                               </button>
                             );
