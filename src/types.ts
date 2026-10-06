@@ -30,13 +30,33 @@ export interface PlayerPerformance {
   goalsConceded: number; // Goles encajados as a goalkeeper
 }
 
+export const GOAL_TYPES = [
+  'ABP Banda',
+  'ABP Corner',
+  'ABP Falta directa',
+  'ABP Falta indirecta',
+  'Salida de presión',
+  'Ataque posicional',
+  '5vs4',
+  '4vs3',
+  '4vs5',
+  '3vs5',
+  'Robo',
+  'Transición',
+  'Penalti',
+  'Doble Penalti',
+  'Perdida',
+] as const;
+
+export type GoalType = typeof GOAL_TYPES[number] | string;
+
 export interface ShotEvent {
   id: string;
   x: number; // percentage coordinate 0 to 100 on canvas width
   y: number; // percentage coordinate 0 to 100 on canvas height
   team: 'local' | 'rival';
   type: 'out' | 'on_target' | 'goal';
-  goalType?: 'Balón corrido' | 'Balón parado' | 'Transición';
+  goalType?: GoalType;
   playerId?: string; // string ID of the player if local
   playerNumber?: string; // Dorsal of player
   timeString: string; // "MM:SS" of the match

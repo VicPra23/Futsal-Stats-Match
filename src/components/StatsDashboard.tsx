@@ -20,7 +20,11 @@ interface StatsDashboardProps {
 }
 
 // Colors for Pie Chart and Bar Charts
-const COLORS = ['#004183', '#FFD700', '#10b981', '#0ea5e9', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#14b8a6'];
+const COLORS = [
+  '#004183', '#10b981', '#f59e0b', '#0ea5e9', '#8b5cf6', 
+  '#ec4899', '#f43f5e', '#14b8a6', '#6366f1', '#84cc16', 
+  '#d97706', '#06b6d4', '#a855f7', '#e11d48', '#3b82f6', '#64748b'
+];
 
 const CustomIntervalTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
@@ -283,8 +287,8 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
   ];
 
   // Recharts Data 4 & 5: Goal Types Distribution
-  const goalTypesLocal = { 'Balón corrido': 0, 'Balón parado': 0, 'Transición': 0, 'No especificado': 0 };
-  const goalTypesRival = { 'Balón corrido': 0, 'Balón parado': 0, 'Transición': 0, 'No especificado': 0 };
+  const goalTypesLocal: Record<string, number> = {};
+  const goalTypesRival: Record<string, number> = {};
   let localGoalsTotal = 0;
   let rivalGoalsTotal = 0;
 
@@ -294,10 +298,10 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
         if (s.type === 'goal') {
           const type = s.goalType || 'No especificado';
           if (s.team === 'local') {
-            goalTypesLocal[type as keyof typeof goalTypesLocal]++;
+            goalTypesLocal[type] = (goalTypesLocal[type] || 0) + 1;
             localGoalsTotal++;
           } else {
-            goalTypesRival[type as keyof typeof goalTypesRival]++;
+            goalTypesRival[type] = (goalTypesRival[type] || 0) + 1;
             rivalGoalsTotal++;
           }
         }
@@ -307,11 +311,21 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
 
   const pieDataGoalTypesLocal = Object.entries(goalTypesLocal)
     .filter(([_, count]) => count > 0)
-    .map(([name, value]) => ({ name, value, percent: Math.round((value / localGoalsTotal) * 100) }));
+    .map(([name, value]) => ({ 
+      name, 
+      value, 
+      percent: localGoalsTotal > 0 ? Math.round((value / localGoalsTotal) * 100) : 0 
+    }))
+    .sort((a, b) => b.value - a.value);
     
   const pieDataGoalTypesRival = Object.entries(goalTypesRival)
     .filter(([_, count]) => count > 0)
-    .map(([name, value]) => ({ name, value, percent: Math.round((value / rivalGoalsTotal) * 100) }));
+    .map(([name, value]) => ({ 
+      name, 
+      value, 
+      percent: rivalGoalsTotal > 0 ? Math.round((value / rivalGoalsTotal) * 100) : 0 
+    }))
+    .sort((a, b) => b.value - a.value);
 
   // Minute intervals calculations (5-min intervals: 0-5, 6-10, ... 36-40)
   const intervalGoalsLocal: Record<string, number> = {

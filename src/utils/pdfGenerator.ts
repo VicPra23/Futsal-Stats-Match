@@ -5,7 +5,7 @@
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Match, Player, ShotEvent, PlayerPerformance } from '../types';
+import { Match, Player, ShotEvent, PlayerPerformance, GOAL_TYPES } from '../types';
 
 // Format seconds into MM:SS string
 const formatTime = (totalSeconds: number): string => {
@@ -369,6 +369,144 @@ export const drawMinutesGoalChartPDF = (
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.2);
     doc.text(d.tramo, slotCenterX, plotY + plotH + 4.5, { align: 'center' });
+  });
+};
+
+// Draw Goal Types Distribution Bar Chart for jsPDF (15 Categories + Otros)
+export const drawGoalTypesBarChartPDF = (
+  doc: jsPDF,
+  startX: number,
+  startY: number,
+  chartWidth: number,
+  chartHeight: number,
+  typesData: { tipo: string; golesFavor: number; golesRival: number }[]
+) => {
+  // 1. Background card with rounded corners and light border
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.35);
+  doc.roundedRect(startX, startY, chartWidth, chartHeight, 3, 3, 'FD');
+
+  // 2. Legend & Totals
+  const legendY = startY + 5.5;
+  // Blue box: Goles a Favor (FS Talavera)
+  doc.setFillColor(0, 65, 131);
+  doc.rect(startX + 8, legendY - 2.5, 3.5, 3, 'F');
+  doc.setTextColor(0, 65, 131);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.8);
+  doc.text('Goles a Favor (FS Talavera)', startX + 13, legendY);
+
+  // Red box: Goles en Contra (Rival)
+  doc.setFillColor(225, 29, 72);
+  doc.rect(startX + 60, legendY - 2.5, 3.5, 3, 'F');
+  doc.setTextColor(225, 29, 72);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.8);
+  doc.text('Goles en Contra (Rival)', startX + 65, legendY);
+
+  const totalFavor = typesData.reduce((acc, d) => acc + d.golesFavor, 0);
+  const totalRival = typesData.reduce((acc, d) => acc + d.golesRival, 0);
+  doc.setTextColor(100, 116, 139);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.2);
+  doc.text(`Totales: ${totalFavor} a favor • ${totalRival} en contra`, startX + 118, legendY);
+
+  // 3. Geometry
+  const yAxisW = 9;
+  const xAxisH = 9.5; // space for 2-line labels
+  const plotX = startX + yAxisW;
+  const plotY = startY + 9.5;
+  const plotW = chartWidth - yAxisW - 5;
+  const plotH = chartHeight - 9.5 - xAxisH;
+
+  // Max value calculation
+  const maxVal = Math.max(
+    1,
+    ...typesData.map(d => Math.max(d.golesFavor, d.golesRival))
+  );
+  const yMax = maxVal <= 2 ? 2 : maxVal % 2 === 0 ? maxVal : maxVal + 1;
+
+  // Horizontal Grid Lines & Y Axis Ticks
+  const steps = [0, Math.round(yMax / 2), yMax];
+  doc.setFontSize(5.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(148, 163, 184);
+
+  steps.forEach(val => {
+    const yPos = plotY + plotH - (val / yMax) * plotH;
+    doc.setDrawColor(241, 245, 249);
+    doc.setLineWidth(0.3);
+    doc.line(plotX, yPos, plotX + plotW, yPos);
+    doc.text(val.toString(), plotX - 2, yPos + 1, { align: 'right' });
+  });
+
+  // Base X line
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.4);
+  doc.line(plotX, plotY + plotH, plotX + plotW, plotY + plotH);
+
+  // Draw Bars
+  const numSlots = typesData.length;
+  const slotW = plotW / numSlots;
+  const barW = Math.max(1.8, Math.min(3.6, slotW * 0.38));
+  const barGap = 0.6;
+
+  typesData.forEach((d, idx) => {
+    const slotCenterX = plotX + idx * slotW + slotW / 2;
+
+    // Bar 1: Goles a Favor (Blue)
+    const bar1H = (d.golesFavor / yMax) * plotH;
+    const bar1X = slotCenterX - barGap / 2 - barW;
+    const bar1Y = plotY + plotH - bar1H;
+
+    if (bar1H > 0) {
+      doc.setFillColor(0, 65, 131);
+      doc.roundedRect(bar1X, bar1Y, barW, bar1H, 0.5, 0.5, 'F');
+      doc.setTextColor(0, 65, 131);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(5.0);
+      doc.text(d.golesFavor.toString(), bar1X + barW / 2, bar1Y - 0.8, { align: 'center' });
+    }
+
+    // Bar 2: Goles en Contra (Red)
+    const bar2H = (d.golesRival / yMax) * plotH;
+    const bar2X = slotCenterX + barGap / 2;
+    const bar2Y = plotY + plotH - bar2H;
+
+    if (bar2H > 0) {
+      doc.setFillColor(225, 29, 72);
+      doc.roundedRect(bar2X, bar2Y, barW, bar2H, 0.5, 0.5, 'F');
+      doc.setTextColor(225, 29, 72);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(5.0);
+      doc.text(d.golesRival.toString(), bar2X + barW / 2, bar2Y - 0.8, { align: 'center' });
+    }
+
+    // X Axis Label (2-lines centered)
+    doc.setTextColor(71, 85, 105);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(4.6);
+
+    const formatTypeLabel = (t: string): [string, string?] => {
+      if (t === 'ABP Banda') return ['ABP', 'Banda'];
+      if (t === 'ABP Corner') return ['ABP', 'Corner'];
+      if (t === 'ABP Falta directa') return ['ABP', 'F. Directa'];
+      if (t === 'ABP Falta indirecta') return ['ABP', 'F. Indir.'];
+      if (t === 'Salida de presión') return ['Salida', 'Presión'];
+      if (t === 'Ataque posicional') return ['Ataque', 'Posicional'];
+      if (t === 'Doble Penalti') return ['Doble', 'Penalti'];
+      if (t === 'Transición') return ['Transic.', 'rápida'];
+      if (t === 'Otros / No especificado' || t === 'Otros') return ['Otros'];
+      return [t];
+    };
+
+    const [line1, line2] = formatTypeLabel(d.tipo);
+    const labelBaseY = plotY + plotH + 3.0;
+    doc.text(line1, slotCenterX, labelBaseY, { align: 'center' });
+    if (line2) {
+      doc.text(line2, slotCenterX, labelBaseY + 2.6, { align: 'center' });
+    }
   });
 };
 
@@ -1078,8 +1216,15 @@ export const exportTeamReportToPDF = (
   const visStats = calcVenueStats(visitanteMatches);
 
   const collectGoalTypes = (mList: Match[]) => {
-    const local: Record<string, number> = { 'Balón corrido': 0, 'Balón parado': 0, 'Transición': 0, 'Otros': 0 };
-    const rival: Record<string, number> = { 'Balón corrido': 0, 'Balón parado': 0, 'Transición': 0, 'Otros': 0 };
+    const local: Record<string, number> = {};
+    const rival: Record<string, number> = {};
+    GOAL_TYPES.forEach(gt => {
+      local[gt] = 0;
+      rival[gt] = 0;
+    });
+    local['Otros'] = 0;
+    rival['Otros'] = 0;
+
     let recordedLocalGoals = 0;
     let recordedRivalGoals = 0;
 
@@ -1088,14 +1233,14 @@ export const exportTeamReportToPDF = (
         m.shotsEvents.forEach(s => {
           if (s.type === 'goal') {
             const rawType = s.goalType;
-            const normalizedType = (rawType === 'Balón corrido' || rawType === 'Balón parado' || rawType === 'Transición')
+            const normalizedType = rawType && (GOAL_TYPES as readonly string[]).includes(rawType)
               ? rawType
               : 'Otros';
             if (s.team === 'local') {
-              local[normalizedType]++;
+              local[normalizedType] = (local[normalizedType] || 0) + 1;
               recordedLocalGoals++;
             } else {
-              rival[normalizedType]++;
+              rival[normalizedType] = (rival[normalizedType] || 0) + 1;
               recordedRivalGoals++;
             }
           }
@@ -1120,13 +1265,17 @@ export const exportTeamReportToPDF = (
   const gtLoc = collectGoalTypes(localMatches);
   const gtVis = collectGoalTypes(visitanteMatches);
 
-  // --- PAGE 1: COLLECTIVE ANALYSIS AND LEADERS ---
-  const totalPages = 2;
-  drawPageHeader(doc, 'ANÁLISIS DE RENDIMIENTO COLECTIVO', headerSubtitle, 1, totalPages, logoBase64);
+  // --- TOTAL PAGES & HEADER SUBTITLE ---
+  const totalPages = 3;
+
+  // ==========================================
+  // --- PAGE 1: RENDIMIENTO COLECTIVO DEL EQUIPO ---
+  // ==========================================
+  drawPageHeader(doc, 'RENDIMIENTO COLECTIVO DEL EQUIPO', headerSubtitle, 1, totalPages, logoBase64);
 
   doc.setTextColor(40, 40, 40);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
+  doc.setFontSize(10.5);
   doc.text('Resumen Colectivo de la Temporada', 15, 43);
 
   doc.setDrawColor(0, 65, 131);
@@ -1134,7 +1283,7 @@ export const exportTeamReportToPDF = (
   doc.line(15, 45, 195, 45);
 
   const boxWidth = 56;
-  const boxHeight = 23;
+  const boxHeight = 22;
   const leftX1 = 15;
   const leftX2 = 77;
   const leftX3 = 139;
@@ -1152,13 +1301,13 @@ export const exportTeamReportToPDF = (
   doc.text('BALANCE DEL CLUB', leftX1 + 3.5, boxY + 4.2);
 
   doc.setTextColor(0, 65, 131);
-  doc.setFontSize(11.5);
-  doc.text(`${wins}V - ${draws}E - ${losses}D`, leftX1 + 3.5, boxY + 11.5);
+  doc.setFontSize(11);
+  doc.text(`${wins}V - ${draws}E - ${losses}D`, leftX1 + 3.5, boxY + 11.2);
 
   doc.setTextColor(71, 85, 105);
   doc.setFontSize(6.5);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Partidos: ${totalGames}  •  Victorias: ${winsPercent}%`, leftX1 + 3.5, boxY + 18.5);
+  doc.text(`Partidos: ${totalGames}  •  Victorias: ${winsPercent}%`, leftX1 + 3.5, boxY + 17.5);
 
   // Box 2: Balance Goleador
   doc.setFillColor(248, 250, 252);
@@ -1169,16 +1318,16 @@ export const exportTeamReportToPDF = (
   doc.setFont('helvetica', 'bold');
   doc.text('BALANCE GOLEADOR', leftX2 + 3.5, boxY + 4.2);
 
-  doc.setTextColor(16, 185, 129); // emerald-600
-  doc.setFontSize(11.5);
-  doc.text(`${totalGoalsFor} / ${totalGoalsAgainst}`, leftX2 + 3.5, boxY + 11.5);
+  doc.setTextColor(16, 185, 129);
+  doc.setFontSize(11);
+  doc.text(`${totalGoalsFor} / ${totalGoalsAgainst}`, leftX2 + 3.5, boxY + 11.2);
 
   doc.setTextColor(71, 85, 105);
   doc.setFontSize(6.5);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Diferencia: ${goalDiff > 0 ? '+' : ''}${goalDiff} goles`, leftX2 + 3.5, boxY + 18.5);
+  doc.text(`Diferencia: ${goalDiff > 0 ? '+' : ''}${goalDiff} goles`, leftX2 + 3.5, boxY + 17.5);
 
-  // Box 3: Tiros (Mismo cajón de tiros)
+  // Box 3: Tiros
   doc.setFillColor(248, 250, 252);
   doc.roundedRect(leftX3, boxY, boxWidth, boxHeight, 3, 3, 'FD');
   
@@ -1187,173 +1336,37 @@ export const exportTeamReportToPDF = (
   doc.setFont('helvetica', 'bold');
   doc.text('TIROS', leftX3 + 3.5, boxY + 4.2);
 
-  doc.setTextColor(190, 140, 10); // gold/amber
+  doc.setTextColor(190, 140, 10);
   doc.setFontSize(9.5);
   doc.setFont('helvetica', 'bold');
-  doc.text(`${totalShots} Totales`, leftX3 + 3.5, boxY + 10.5);
+  doc.text(`${totalShots} Totales`, leftX3 + 3.5, boxY + 10.2);
 
   doc.setTextColor(71, 85, 105);
   doc.setFontSize(6);
   doc.setFont('helvetica', 'normal');
-  doc.text(`1ª P: ${totalShots1st}  •  2ª P: ${totalShots2nd}`, leftX3 + 3.5, boxY + 14.8);
-  doc.text(`Dentro: ${totalShotsOnTarget}  •  Fuera: ${totalShotsOut}`, leftX3 + 3.5, boxY + 18.3);
+  doc.text(`1ª P: ${totalShots1st}  •  2ª P: ${totalShots2nd}`, leftX3 + 3.5, boxY + 14.2);
+  doc.text(`Dentro: ${totalShotsOnTarget}  •  Fuera: ${totalShotsOut}`, leftX3 + 3.5, boxY + 17.5);
 
-  doc.setTextColor(0, 65, 131); // brand blue
+  doc.setTextColor(0, 65, 131);
   doc.setFontSize(6);
   doc.setFont('helvetica', 'bold');
-  doc.text(`Tiros/Gol: ${shotsPerGoal} de media`, leftX3 + 3.5, boxY + 21.6);
+  doc.text(`Tiros/Gol: ${shotsPerGoal} de media`, leftX3 + 3.5, boxY + 20.8);
 
-  // Leaders Section Title
-  const leadersY = 76;
+  // Section 2: Sede Breakdown (Local vs Visitante)
+  let currentY = boxY + boxHeight + 4.5;
   doc.setTextColor(40, 40, 40);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.text('Líderes de la Temporada (Acumulado General)', 15, leadersY);
+  doc.setFontSize(8.8);
+  const venueTitle = venueFilter === 'all'
+    ? 'Rendimiento Acumulado por Sede (Local vs. Visitante)'
+    : `Rendimiento Acumulado (${venueFilter === 'local' ? 'Solo Local' : 'Solo Visitante'})`;
+  doc.text(venueTitle, 15, currentY);
 
   doc.setDrawColor(0, 65, 131);
   doc.setLineWidth(0.3);
-  doc.line(15, leadersY + 2, 195, leadersY + 2);
-
-  // --- LEADERBOARDS ROW 1 ---
-  // Left: Goleadoras
-  doc.setTextColor(51, 65, 85);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.text('Goleadoras', 15, leadersY + 6.5);
-
-  const scorersTableBody = topScorersList.length > 0 
-    ? topScorersList.map((s, idx) => [
-        `#${idx + 1}`,
-        `#${s.player.number} ${s.player.alias || s.player.name}`,
-        `${s.goals} G`
-      ])
-    : [['-', 'Sin goles registrados', '-']];
-
-  autoTable(doc, {
-    startY: leadersY + 8.5,
-    margin: { left: 15 },
-    tableWidth: 82,
-    head: [['Pos', 'Jugadora', 'Goles']],
-    body: scorersTableBody,
-    theme: 'striped',
-    headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontSize: 6.8, fontStyle: 'bold' },
-    styles: { fontSize: 6.5, cellPadding: 1.1 },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
-      1: { cellWidth: 50 },
-      2: { halign: 'center', cellWidth: 22, fontStyle: 'bold' }
-    }
-  });
-
-  // Right: Minutos Jugados
-  doc.setTextColor(51, 65, 85);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.text('Minutos Jugados', 113, leadersY + 6.5);
-
-  const minutesTableBody = topMinutesList.length > 0
-    ? topMinutesList.map((s, idx) => [
-        `#${idx + 1}`,
-        `#${s.player.number} ${s.player.alias || s.player.name}`,
-        `${Math.floor(s.minutes / 60)} min`
-      ])
-    : [['-', 'Sin minutos registrados', '-']];
-
-  autoTable(doc, {
-    startY: leadersY + 8.5,
-    margin: { left: 113 },
-    tableWidth: 82,
-    head: [['Pos', 'Jugadora', 'Minutos']],
-    body: minutesTableBody,
-    theme: 'striped',
-    headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontSize: 6.8, fontStyle: 'bold' },
-    styles: { fontSize: 6.5, cellPadding: 1.1 },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
-      1: { cellWidth: 50 },
-      2: { halign: 'center', cellWidth: 22 }
-    }
-  });
-
-  // --- LEADERBOARDS ROW 2 ---
-  const row2TitleY = 110;
-  // Left: Volumen de Tiros
-  doc.setTextColor(51, 65, 85);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.text('Clasificación por Tiros', 15, row2TitleY);
-
-  const shotsTableBody = topShotsList.length > 0
-    ? topShotsList.map((s, idx) => [
-        `#${idx + 1}`,
-        `#${s.player.number} ${s.player.alias || s.player.name}`,
-        `${s.shots} tiros`
-      ])
-    : [['-', 'Sin tiros registrados', '-']];
-
-  autoTable(doc, {
-    startY: row2TitleY + 2,
-    margin: { left: 15 },
-    tableWidth: 82,
-    head: [['Pos', 'Jugadora', 'Tiros']],
-    body: shotsTableBody,
-    theme: 'striped',
-    headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontSize: 6.8, fontStyle: 'bold' },
-    styles: { fontSize: 6.5, cellPadding: 1.1 },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
-      1: { cellWidth: 50 },
-      2: { halign: 'center', cellWidth: 22 }
-    }
-  });
-
-  // Right: Sanciones y Disciplina
-  doc.setTextColor(51, 65, 85);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.text('Amonestaciones', 113, row2TitleY);
-
-  const cardsTableBody = topCardsList.length > 0
-    ? topCardsList.map((s, idx) => {
-        return [
-          `#${idx + 1}`,
-          `#${s.player.number} ${s.player.name}`,
-          s.yellows.toString(),
-          s.redCards.toString()
-        ];
-      })
-    : [['-', 'Sin amonestaciones', '0', '0']];
-
-  autoTable(doc, {
-    startY: row2TitleY + 2,
-    margin: { left: 113 },
-    tableWidth: 82,
-    head: [['Pos', 'Jugadora', 'A', 'R']],
-    body: cardsTableBody,
-    theme: 'striped',
-    headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontSize: 6.8, fontStyle: 'bold' },
-    styles: { fontSize: 6.5, cellPadding: 1.1 },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
-      1: { cellWidth: 50 },
-      2: { halign: 'center', cellWidth: 11, fontStyle: 'bold' },
-      3: { halign: 'center', cellWidth: 11, fontStyle: 'bold' }
-    }
-  });
-
-  // --- SECTION: VENUE BREAKDOWN (LOCAL VS. VISITANTE) & GOAL TYPES ---
-  let nextSectionY = Math.max(140, ((doc as any).lastAutoTable?.finalY || 136) + 5);
+  doc.line(15, currentY + 1.8, 195, currentY + 1.8);
 
   if (venueFilter === 'all') {
-    doc.setTextColor(40, 40, 40);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.text('Rendimiento Acumulado por Sede (Local vs. Visitante)', 15, nextSectionY);
-
-    doc.setDrawColor(0, 65, 131);
-    doc.setLineWidth(0.3);
-    doc.line(15, nextSectionY + 2, 195, nextSectionY + 2);
-
     const venueTableHeaders = [['Sede / Condición', 'Part.', 'V', 'E', 'D', '% Vic.', 'GF', 'GC', 'Dif.', 'Tiros (Dentro / Fuera)', 'Tiros/Gol']];
     const venueTableBody = [
       [
@@ -1398,7 +1411,7 @@ export const exportTeamReportToPDF = (
     ];
 
     autoTable(doc, {
-      startY: nextSectionY + 4,
+      startY: currentY + 3.2,
       margin: { left: 15 },
       tableWidth: 180,
       head: venueTableHeaders,
@@ -1408,10 +1421,10 @@ export const exportTeamReportToPDF = (
         fillColor: [0, 65, 131],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 6.8,
+        fontSize: 6.5,
         halign: 'center'
       },
-      styles: { fontSize: 6.5, cellPadding: 1.2 },
+      styles: { fontSize: 6.0, cellPadding: 0.9 },
       columnStyles: {
         0: { halign: 'left', fontStyle: 'bold', cellWidth: 46 },
         1: { halign: 'center', cellWidth: 11 },
@@ -1433,180 +1446,355 @@ export const exportTeamReportToPDF = (
         }
       }
     });
-
-    nextSectionY = ((doc as any).lastAutoTable?.finalY || nextSectionY + 20) + 5;
+    currentY = ((doc as any).lastAutoTable?.finalY || currentY + 22) + 4.5;
+  } else {
+    const targetStats = venueFilter === 'local' ? locStats : visStats;
+    const venueName = venueFilter === 'local' ? 'Condición de Local (1ª Equipación)' : 'Condición de Visitante (2ª Equipación)';
+    autoTable(doc, {
+      startY: currentY + 3.2,
+      margin: { left: 15 },
+      tableWidth: 180,
+      head: [['Condición', 'Part.', 'V', 'E', 'D', '% Vic.', 'GF', 'GC', 'Dif.', 'Tiros (Dentro / Fuera)', 'Tiros/Gol']],
+      body: [[
+        venueName,
+        targetStats.total.toString(),
+        targetStats.w.toString(),
+        targetStats.d.toString(),
+        targetStats.l.toString(),
+        `${targetStats.winPct}%`,
+        targetStats.gf.toString(),
+        targetStats.gc.toString(),
+        `${targetStats.diff > 0 ? '+' : ''}${targetStats.diff}`,
+        `${targetStats.shots} (${targetStats.shotsIn} d. / ${targetStats.shotsOut} f.)`,
+        targetStats.shotsPerGoal
+      ]],
+      theme: 'striped',
+      headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 6.5, halign: 'center' },
+      styles: { fontSize: 6.0, cellPadding: 1.0 }
+    });
+    currentY = ((doc as any).lastAutoTable?.finalY || currentY + 15) + 4.5;
   }
 
-  // --- GOAL TYPES BREAKDOWN SECTION ---
+  // Section 3: Goal Types Distribution VERTICAL BAR CHART
   doc.setTextColor(40, 40, 40);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  const goalTypesTitle = venueFilter === 'all'
-    ? 'Distribución de Goles por Tipo de Jugada (Local vs. Visitante)'
-    : `Distribución de Goles por Tipo de Jugada (${venueFilter === 'local' ? 'Solo Local' : 'Solo Visitante'})`;
-  doc.text(goalTypesTitle, 15, nextSectionY);
+  doc.setFontSize(8.8);
+  doc.text('Distribución de Goles por Tipo de Jugada (FS Talavera vs. Rival)', 15, currentY);
 
   doc.setDrawColor(0, 65, 131);
   doc.setLineWidth(0.3);
-  doc.line(15, nextSectionY + 2, 195, nextSectionY + 2);
+  doc.line(15, currentY + 1.8, 195, currentY + 1.8);
 
-  if (venueFilter === 'all') {
-    const goalTypesHeaders = [
-      ['Tipo de Jugada', 'Goles Eq. (Todas)', 'Eq. (Local)', 'Eq. (Visit.)', '% Eq.', 'Goles Riv. (Todas)', 'Riv. (Local)', 'Riv. (Visit.)', '% Riv.']
-    ];
-
-    const typesList = ['Balón corrido', 'Balón parado', 'Transición'];
-    if (gtAll.local['Otros'] > 0 || gtAll.rival['Otros'] > 0) {
-      typesList.push('Otros');
-    }
-
-    const goalTypesBody = typesList.map(t => {
-      const label = t === 'Transición' ? 'Transición rápida' : t === 'Otros' ? 'Otros / No especificado' : t;
-      const countEqAll = gtAll.local[t] || 0;
-      const countEqLoc = gtLoc.local[t] || 0;
-      const countEqVis = gtVis.local[t] || 0;
-      const pctEq = gtAll.totalLocal > 0 ? `${Math.round((countEqAll / gtAll.totalLocal) * 100)}%` : '0%';
-
-      const countRivAll = gtAll.rival[t] || 0;
-      const countRivLoc = gtLoc.rival[t] || 0;
-      const countRivVis = gtVis.rival[t] || 0;
-      const pctRiv = gtAll.totalRival > 0 ? `${Math.round((countRivAll / gtAll.totalRival) * 100)}%` : '0%';
-
-      return [
-        label,
-        countEqAll.toString(),
-        countEqLoc.toString(),
-        countEqVis.toString(),
-        pctEq,
-        countRivAll.toString(),
-        countRivLoc.toString(),
-        countRivVis.toString(),
-        pctRiv
-      ];
-    });
-
-    // Total Row
-    goalTypesBody.push([
-      'TOTAL GOLES',
-      gtAll.totalLocal.toString(),
-      gtLoc.totalLocal.toString(),
-      gtVis.totalLocal.toString(),
-      '100%',
-      gtAll.totalRival.toString(),
-      gtLoc.totalRival.toString(),
-      gtVis.totalRival.toString(),
-      '100%'
-    ]);
-
-    autoTable(doc, {
-      startY: nextSectionY + 4,
-      margin: { left: 15 },
-      tableWidth: 180,
-      head: goalTypesHeaders,
-      body: goalTypesBody,
-      theme: 'striped',
-      headStyles: {
-        fillColor: [0, 65, 131],
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-        fontSize: 6.8,
-        halign: 'center'
-      },
-      styles: { fontSize: 6.5, cellPadding: 1.2 },
-      columnStyles: {
-        0: { halign: 'left', fontStyle: 'bold', cellWidth: 44 },
-        1: { halign: 'center', cellWidth: 17, fontStyle: 'bold' },
-        2: { halign: 'center', cellWidth: 17 },
-        3: { halign: 'center', cellWidth: 17 },
-        4: { halign: 'center', cellWidth: 17, fontStyle: 'bold' },
-        5: { halign: 'center', cellWidth: 17, fontStyle: 'bold' },
-        6: { halign: 'center', cellWidth: 17 },
-        7: { halign: 'center', cellWidth: 17 },
-        8: { halign: 'center', cellWidth: 17, fontStyle: 'bold' }
-      },
-      didParseCell: (data: any) => {
-        if (data.section === 'body' && data.row.index === (goalTypesBody.length - 1)) {
-          data.cell.styles.fillColor = [241, 245, 249];
-          data.cell.styles.textColor = [0, 65, 131];
-          data.cell.styles.fontStyle = 'bold';
-        }
-      }
-    });
-  } else {
-    // Single venue goal types table
-    const targetGt = venueFilter === 'local' ? gtLoc : gtVis;
-    const venueLabel = venueFilter === 'local' ? 'Local' : 'Visitante';
-    const goalTypesHeaders = [
-      ['Tipo de Jugada', `Goles Eq. (${venueLabel})`, '% Eq.', `Goles Riv. (${venueLabel})`, '% Riv.']
-    ];
-
-    const typesList = ['Balón corrido', 'Balón parado', 'Transición'];
-    if (targetGt.local['Otros'] > 0 || targetGt.rival['Otros'] > 0) {
-      typesList.push('Otros');
-    }
-
-    const goalTypesBody = typesList.map(t => {
-      const label = t === 'Transición' ? 'Transición rápida' : t === 'Otros' ? 'Otros / No especificado' : t;
-      const countEq = targetGt.local[t] || 0;
-      const pctEq = targetGt.totalLocal > 0 ? `${Math.round((countEq / targetGt.totalLocal) * 100)}%` : '0%';
-      const countRiv = targetGt.rival[t] || 0;
-      const pctRiv = targetGt.totalRival > 0 ? `${Math.round((countRiv / targetGt.totalRival) * 100)}%` : '0%';
-
-      return [label, countEq.toString(), pctEq, countRiv.toString(), pctRiv];
-    });
-
-    goalTypesBody.push([
-      'TOTAL GOLES',
-      targetGt.totalLocal.toString(),
-      '100%',
-      targetGt.totalRival.toString(),
-      '100%'
-    ]);
-
-    autoTable(doc, {
-      startY: nextSectionY + 4,
-      margin: { left: 15 },
-      tableWidth: 180,
-      head: goalTypesHeaders,
-      body: goalTypesBody,
-      theme: 'striped',
-      headStyles: {
-        fillColor: [0, 65, 131],
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-        fontSize: 6.8,
-        halign: 'center'
-      },
-      styles: { fontSize: 6.5, cellPadding: 1.2 },
-      columnStyles: {
-        0: { halign: 'left', fontStyle: 'bold', cellWidth: 60 },
-        1: { halign: 'center', cellWidth: 30, fontStyle: 'bold' },
-        2: { halign: 'center', cellWidth: 30 },
-        3: { halign: 'center', cellWidth: 30, fontStyle: 'bold' },
-        4: { halign: 'center', cellWidth: 30 }
-      },
-      didParseCell: (data: any) => {
-        if (data.section === 'body' && data.row.index === (goalTypesBody.length - 1)) {
-          data.cell.styles.fillColor = [241, 245, 249];
-          data.cell.styles.textColor = [0, 65, 131];
-          data.cell.styles.fontStyle = 'bold';
-        }
-      }
+  const targetGt = venueFilter === 'local' ? gtLoc : venueFilter === 'visitante' ? gtVis : gtAll;
+  const typesChartData = (GOAL_TYPES as readonly string[]).map(t => ({
+    tipo: t,
+    golesFavor: targetGt.local[t] || 0,
+    golesRival: targetGt.rival[t] || 0
+  }));
+  if ((targetGt.local['Otros'] || 0) > 0 || (targetGt.rival['Otros'] || 0) > 0) {
+    typesChartData.push({
+      tipo: 'Otros',
+      golesFavor: targetGt.local['Otros'] || 0,
+      golesRival: targetGt.rival['Otros'] || 0
     });
   }
 
-  // --- PAGE 2: SQUAD DETAILED STATISTICS ---
-  doc.addPage();
-  drawPageHeader(doc, 'ESTADÍSTICAS COMPLETAS DE LA PLANTILLA', headerSubtitle, 2, totalPages, logoBase64);
+  const goalTypesChartH = 48;
+  drawGoalTypesBarChartPDF(doc, 15, currentY + 3.2, 180, goalTypesChartH, typesChartData);
+
+  // Section 4: Goal Intervals VERTICAL BAR CHART
+  currentY = currentY + 3.2 + goalTypesChartH + 4.5;
 
   doc.setTextColor(40, 40, 40);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.text('Rendimiento Individual de la Plantilla', 15, 46);
+  doc.setFontSize(8.8);
+  doc.text('Distribución Temporal de Goles por Tramos de Minutos (FS Talavera vs. Rival)', 15, currentY);
 
   doc.setDrawColor(0, 65, 131);
-  doc.setLineWidth(0.4);
-  doc.line(15, 48, 195, 48);
+  doc.setLineWidth(0.3);
+  doc.line(15, currentY + 1.8, 195, currentY + 1.8);
+
+  const intervalGoalsLocalPDF: Record<string, number> = {
+    '0-5': 0, '6-10': 0, '11-15': 0, '16-20': 0,
+    '21-25': 0, '26-30': 0, '31-35': 0, '36-40': 0
+  };
+  const intervalGoalsRivalPDF: Record<string, number> = {
+    '0-5': 0, '6-10': 0, '11-15': 0, '16-20': 0,
+    '21-25': 0, '26-30': 0, '31-35': 0, '36-40': 0
+  };
+
+  const matchesForIntervals = venueFilter === 'local' ? localMatches : venueFilter === 'visitante' ? visitanteMatches : matches;
+  matchesForIntervals.forEach(m => {
+    if (m.shotsEvents && m.shotsEvents.length > 0) {
+      m.shotsEvents.forEach(s => {
+        if (s.type === 'goal') {
+          const minute = getMatchMinuteFromShot(s);
+          const interval = getMinuteIntervalFromMinute(minute);
+          if (s.team === 'local') {
+            intervalGoalsLocalPDF[interval]++;
+          } else {
+            intervalGoalsRivalPDF[interval]++;
+          }
+        }
+      });
+    }
+  });
+
+  const intervalsChartData = MINUTE_INTERVALS.map(interval => ({
+    tramo: interval,
+    golesFavor: intervalGoalsLocalPDF[interval] || 0,
+    golesRival: intervalGoalsRivalPDF[interval] || 0
+  }));
+
+  const intervalsChartH = 46;
+  drawMinutesGoalChartPDF(doc, 15, currentY + 3.2, 180, intervalsChartH, intervalsChartData);
+
+  // ==========================================
+  // --- PAGE 2: LÍDERES DE TEMPORADA ---
+  // ==========================================
+  doc.addPage();
+  drawPageHeader(doc, 'LÍDERES Y DESTACADAS DE LA TEMPORADA', headerSubtitle, 2, totalPages, logoBase64);
+
+  doc.setTextColor(40, 40, 40);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('Cuadro de Honor y Líderes Individuales de la Temporada', 15, 43);
+
+  doc.setDrawColor(0, 65, 131);
+  doc.setLineWidth(0.35);
+  doc.line(15, 45, 195, 45);
+
+  const leadersY = 48;
+  const colW = 85;
+  const col1X = 15;
+  const col2X = 110;
+
+  // --- ROW 1: GOLEADORAS & MINUTOS ---
+  // Left: Goleadoras
+  doc.setTextColor(51, 65, 85);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Máximas Goleadoras', col1X, leadersY + 4);
+
+  const scorersTableBody = topScorersList.length > 0 
+    ? topScorersList.map((s, idx) => [
+        `#${idx + 1}`,
+        `#${s.player.number} ${s.player.alias || s.player.name}`,
+        `${s.goals} G`
+      ])
+    : [['-', 'Sin goles registrados', '-']];
+
+  autoTable(doc, {
+    startY: leadersY + 6,
+    margin: { left: col1X },
+    tableWidth: colW,
+    head: [['Pos', 'Jugadora', 'Goles']],
+    body: scorersTableBody,
+    theme: 'striped',
+    headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
+    styles: { fontSize: 6.5, cellPadding: 1.2 },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
+      1: { cellWidth: 52 },
+      2: { halign: 'center', cellWidth: 23, fontStyle: 'bold' }
+    }
+  });
+
+  // Right: Minutos Jugados
+  doc.setTextColor(51, 65, 85);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Minutos Jugados', col2X, leadersY + 4);
+
+  const minutesTableBody = topMinutesList.length > 0
+    ? topMinutesList.map((s, idx) => [
+        `#${idx + 1}`,
+        `#${s.player.number} ${s.player.alias || s.player.name}`,
+        `${Math.floor(s.minutes / 60)} min`
+      ])
+    : [['-', 'Sin minutos registrados', '-']];
+
+  autoTable(doc, {
+    startY: leadersY + 6,
+    margin: { left: col2X },
+    tableWidth: colW,
+    head: [['Pos', 'Jugadora', 'Minutos']],
+    body: minutesTableBody,
+    theme: 'striped',
+    headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
+    styles: { fontSize: 6.5, cellPadding: 1.2 },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
+      1: { cellWidth: 52 },
+      2: { halign: 'center', cellWidth: 23 }
+    }
+  });
+
+  // --- ROW 2: TIROS & AMONESTACIONES ---
+  const row2Y = Math.max((doc as any).lastAutoTable?.finalY || 88, 92) + 5;
+
+  // Left: Tiros
+  doc.setTextColor(51, 65, 85);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Clasificación por Tiros', col1X, row2Y + 4);
+
+  const shotsTableBody = topShotsList.length > 0
+    ? topShotsList.map((s, idx) => [
+        `#${idx + 1}`,
+        `#${s.player.number} ${s.player.alias || s.player.name}`,
+        `${s.shots} tiros`
+      ])
+    : [['-', 'Sin tiros registrados', '-']];
+
+  autoTable(doc, {
+    startY: row2Y + 6,
+    margin: { left: col1X },
+    tableWidth: colW,
+    head: [['Pos', 'Jugadora', 'Tiros']],
+    body: shotsTableBody,
+    theme: 'striped',
+    headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
+    styles: { fontSize: 6.5, cellPadding: 1.2 },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
+      1: { cellWidth: 52 },
+      2: { halign: 'center', cellWidth: 23 }
+    }
+  });
+
+  // Right: Amonestaciones
+  doc.setTextColor(51, 65, 85);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Amonestaciones y Disciplina', col2X, row2Y + 4);
+
+  const cardsTableBody = topCardsList.length > 0
+    ? topCardsList.map((s, idx) => [
+        `#${idx + 1}`,
+        `#${s.player.number} ${s.player.name}`,
+        s.yellows.toString(),
+        s.redCards.toString()
+      ])
+    : [['-', 'Sin amonestaciones', '0', '0']];
+
+  autoTable(doc, {
+    startY: row2Y + 6,
+    margin: { left: col2X },
+    tableWidth: colW,
+    head: [['Pos', 'Jugadora', 'A', 'R']],
+    body: cardsTableBody,
+    theme: 'striped',
+    headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
+    styles: { fontSize: 6.5, cellPadding: 1.2 },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
+      1: { cellWidth: 52 },
+      2: { halign: 'center', cellWidth: 11.5, fontStyle: 'bold' },
+      3: { halign: 'center', cellWidth: 11.5, fontStyle: 'bold' }
+    }
+  });
+
+  // --- ROW 3: PORTERAS & EFICACIA ---
+  const row3Y = Math.max((doc as any).lastAutoTable?.finalY || 138, 142) + 5;
+
+  const topGoalkeepersList = [...playerStatsList]
+    .filter(p => p.player.position === 'Portero/a' || p.saves > 0 || p.conceded > 0)
+    .sort((a, b) => b.saves - a.saves || a.conceded - b.conceded)
+    .slice(0, 5);
+
+  const topAccuracyList = [...playerStatsList]
+    .filter(p => p.shots >= 2 && p.goals > 0)
+    .sort((a, b) => (b.goals / b.shots) - (a.goals / a.shots) || b.goals - a.goals)
+    .slice(0, 5);
+
+  // Left: Porteras
+  doc.setTextColor(51, 65, 85);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Portería y Paradas', col1X, row3Y + 4);
+
+  const gkTableBody = topGoalkeepersList.length > 0
+    ? topGoalkeepersList.map((s, idx) => {
+        const totalAction = s.saves + s.conceded;
+        const pctSave = totalAction > 0 ? `${Math.round((s.saves / totalAction) * 100)}%` : '-';
+        return [
+          `#${idx + 1}`,
+          `#${s.player.number} ${s.player.alias || s.player.name}`,
+          s.saves.toString(),
+          s.conceded.toString(),
+          pctSave
+        ];
+      })
+    : [['-', 'Sin actividad registrada', '0', '0', '-']];
+
+  autoTable(doc, {
+    startY: row3Y + 6,
+    margin: { left: col1X },
+    tableWidth: colW,
+    head: [['Pos', 'Portera', 'Par.', 'Enc.', '% Efic.']],
+    body: gkTableBody,
+    theme: 'striped',
+    headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
+    styles: { fontSize: 6.5, cellPadding: 1.2 },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
+      1: { cellWidth: 41 },
+      2: { halign: 'center', cellWidth: 11, fontStyle: 'bold' },
+      3: { halign: 'center', cellWidth: 11 },
+      4: { halign: 'center', cellWidth: 12, fontStyle: 'bold' }
+    }
+  });
+
+  // Right: Eficacia Goleadora
+  doc.setTextColor(51, 65, 85);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Eficacia Goleadora (% Goles/Tiro)', col2X, row3Y + 4);
+
+  const accTableBody = topAccuracyList.length > 0
+    ? topAccuracyList.map((s, idx) => {
+        const pct = Math.round((s.goals / s.shots) * 100);
+        return [
+          `#${idx + 1}`,
+          `#${s.player.number} ${s.player.alias || s.player.name}`,
+          `${s.goals}/${s.shots}`,
+          `${pct}%`
+        ];
+      })
+    : [['-', 'Sin datos suficientes (min 2 tiros)', '-', '-']];
+
+  autoTable(doc, {
+    startY: row3Y + 6,
+    margin: { left: col2X },
+    tableWidth: colW,
+    head: [['Pos', 'Jugadora', 'G/Tir', '% Acierto']],
+    body: accTableBody,
+    theme: 'striped',
+    headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
+    styles: { fontSize: 6.5, cellPadding: 1.2 },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
+      1: { cellWidth: 45 },
+      2: { halign: 'center', cellWidth: 15 },
+      3: { halign: 'center', cellWidth: 15, fontStyle: 'bold' }
+    }
+  });
+
+  // ==========================================
+  // --- PAGE 3: RENDIMIENTO INDIVIDUAL DE LA PLANTILLA ---
+  // ==========================================
+  doc.addPage();
+  drawPageHeader(doc, 'RENDIMIENTO INDIVIDUAL DE LA PLANTILLA', headerSubtitle, 3, totalPages, logoBase64);
+
+  doc.setTextColor(40, 40, 40);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Rendimiento Individual y Estadísticas Acumuladas de la Plantilla', 15, 44);
+
+  doc.setDrawColor(0, 65, 131);
+  doc.setLineWidth(0.35);
+  doc.line(15, 46, 195, 46);
 
   const sortedScorers = players
     .map(p => {
@@ -1660,12 +1848,14 @@ export const exportTeamReportToPDF = (
   ]);
 
   autoTable(doc, {
-    startY: 52,
+    startY: 50,
+    margin: { left: 15 },
+    tableWidth: 180,
     head: [['Nº', 'Jugador/a', 'Posición', 'Part.', 'Tiempo', 'Tir', 'Gol', 'Par/Enc', 'Tarjetas', 'Efect.']],
     body: scorersBody,
     theme: 'striped',
-    headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255] },
-    styles: { fontSize: 7.5, cellPadding: 1.8 },
+    headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 7.5, fontStyle: 'bold' },
+    styles: { fontSize: 7.2, cellPadding: 1.8 },
     columnStyles: {
       0: { fontStyle: 'bold', cellWidth: 8, halign: 'center' },
       1: { fontStyle: 'bold', cellWidth: 35 },
@@ -1687,69 +1877,6 @@ export const exportTeamReportToPDF = (
       }
     }
   });
-
-  // --- SECTION: GOALS BY MINUTE INTERVALS CHART (PAGE 2) ---
-  const squadTableEndY = (doc as any).lastAutoTable?.finalY || 120;
-  let chartSectionY = squadTableEndY + 7;
-  const chartHeight = 48;
-  const chartWidth = 180;
-
-  // Calculate goal intervals for PDF
-  const intervalGoalsLocalPDF: Record<string, number> = {
-    '0-5': 0, '6-10': 0, '11-15': 0, '16-20': 0,
-    '21-25': 0, '26-30': 0, '31-35': 0, '36-40': 0
-  };
-  const intervalGoalsRivalPDF: Record<string, number> = {
-    '0-5': 0, '6-10': 0, '11-15': 0, '16-20': 0,
-    '21-25': 0, '26-30': 0, '31-35': 0, '36-40': 0
-  };
-
-  matches.forEach(m => {
-    if (m.shotsEvents && m.shotsEvents.length > 0) {
-      m.shotsEvents.forEach(s => {
-        if (s.type === 'goal') {
-          const minute = getMatchMinuteFromShot(s);
-          const interval = getMinuteIntervalFromMinute(minute);
-          if (s.team === 'local') {
-            intervalGoalsLocalPDF[interval]++;
-          } else {
-            intervalGoalsRivalPDF[interval]++;
-          }
-        }
-      });
-    }
-  });
-
-  const intervalsChartData = MINUTE_INTERVALS.map(interval => ({
-    tramo: interval,
-    golesFavor: intervalGoalsLocalPDF[interval] || 0,
-    golesRival: intervalGoalsRivalPDF[interval] || 0
-  }));
-
-  // If squad table was long and there isn't enough space before the footer (Y=280), add Page 3
-  if (chartSectionY + chartHeight + 6 > 276) {
-    doc.addPage();
-    drawPageHeader(doc, 'DISTRIBUCIÓN TEMPORAL DE GOLES', headerSubtitle, 3, 3, logoBase64);
-    chartSectionY = 46;
-  }
-
-  doc.setTextColor(40, 40, 40);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10.5);
-  doc.text('Distribución de Goles por Tramos de Minutos (FS Talavera vs. Rival)', 15, chartSectionY);
-
-  doc.setDrawColor(0, 65, 131);
-  doc.setLineWidth(0.35);
-  doc.line(15, chartSectionY + 2, 195, chartSectionY + 2);
-
-  drawMinutesGoalChartPDF(
-    doc,
-    15,
-    chartSectionY + 4,
-    chartWidth,
-    chartHeight,
-    intervalsChartData
-  );
 
   doc.save(`FS_Talavera_Reporte_Temporada_${seasonLabel.replace(/\s+/g, '_')}.pdf`);
 };

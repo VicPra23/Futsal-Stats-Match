@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, RotateCcw, Save, Flame, User, AlertTriangle, Shield, Check, Plus, Minus, Users, Undo2, Trash2 } from 'lucide-react';
-import { Player, LiveMatchState, LivePlayerState, Match, PositionType, ShotEvent } from '../types';
+import { Player, LiveMatchState, LivePlayerState, Match, PositionType, ShotEvent, GOAL_TYPES, GoalType } from '../types';
 import { exportMatchToPDF } from '../utils/pdfGenerator';
 
 interface LiveTrackerProps {
@@ -934,7 +934,7 @@ export default function LiveTracker({
     team: 'local' | 'rival',
     type: 'out' | 'on_target' | 'goal',
     localPlayerId?: string,
-    goalType?: 'Balón corrido' | 'Balón parado' | 'Transición'
+    goalType?: GoalType
   ) => {
     if (!clickCoords) return;
 
@@ -2082,13 +2082,23 @@ export default function LiveTracker({
             {/* Click Coordinates Dialogue overlay popover replaced with professional compact Mini-Modal Flotante style contextual tooltip popover */}
             {clickCoords && (
               <div
-                className="absolute z-50 bg-white border border-[#004183] text-slate-800 rounded-3xl p-3 shadow-2xl max-w-[280px] w-64 animate-fade-in text-[11px] border-t-4 border-t-[#FFD700] flex flex-col gap-2"
-                style={{
-                  left: clickCoords.x > 50 ? 'auto' : `calc(${clickCoords.x}% + 14px)`,
-                  right: clickCoords.x > 50 ? `calc(${100 - clickCoords.x}% + 14px)` : 'auto',
-                  top: clickCoords.y > 50 ? 'auto' : `calc(${clickCoords.y}% + 14px)`,
-                  bottom: clickCoords.y > 50 ? `calc(${100 - clickCoords.y}% + 14px)` : 'auto',
-                }}
+                className={`absolute z-50 bg-white border border-[#004183] text-slate-800 rounded-3xl p-3 shadow-2xl ${
+                  shotStep === 'goal_type' ? 'w-[350px] sm:w-[390px] max-w-[96vw]' : 'w-64 max-w-[280px]'
+                } animate-fade-in text-[11px] border-t-4 border-t-[#FFD700] flex flex-col gap-2 max-h-[90vh] overflow-y-auto`}
+                style={
+                  shotStep === 'goal_type'
+                    ? {
+                        left: '50%',
+                        top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                      }
+                    : {
+                        left: clickCoords.x > 50 ? 'auto' : `calc(${clickCoords.x}% + 14px)`,
+                        right: clickCoords.x > 50 ? `calc(${100 - clickCoords.x}% + 14px)` : 'auto',
+                        top: clickCoords.y > 50 ? 'auto' : `calc(${clickCoords.y}% + 14px)`,
+                        bottom: clickCoords.y > 50 ? `calc(${100 - clickCoords.y}% + 14px)` : 'auto',
+                      }
+                }
               >
                 {/* Close small cross */}
                 <button
@@ -2096,113 +2106,134 @@ export default function LiveTracker({
                   onClick={() => {
                     setClickCoords(null);
                     setSelectedSubjectId(null);
+                    setShotStep(null);
                   }}
-                  className="absolute -top-2 -right-2 text-slate-400 hover:text-slate-800 font-extrabold text-[10px] w-6 h-6 rounded-full bg-white border border-slate-200 hover:bg-slate-50 flex items-center justify-center shadow transition cursor-pointer select-none"
+                  className="absolute -top-2 -right-2 text-slate-400 hover:text-slate-800 font-extrabold text-[10px] w-6 h-6 rounded-full bg-white border border-slate-200 hover:bg-slate-50 flex items-center justify-center shadow transition cursor-pointer select-none z-10"
                 >
                   ✕
                 </button>
 
-                <div className="text-center pb-1 border-b border-slate-100 flex items-center justify-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-[#FFD700] rounded-full"></span>
-                  <span className="font-black text-[10px] text-[#004183] uppercase tracking-wider">REGISTRO RÁPIDO DE TIRO</span>
-                </div>
+                {shotStep === 'goal_type' ? (
+                  <>
+                    <div className="text-center pb-1.5 border-b border-emerald-100 flex flex-col items-center justify-center">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm">⚽</span>
+                        <span className="font-black text-[11px] text-emerald-800 uppercase tracking-wider">
+                          REGISTRAR GOL
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-bold text-slate-600 mt-0.5">
+                        {selectedSubjectId === 'rival' ? (
+                          <span className="text-rose-600 font-extrabold">Anotado por: RIVAL</span>
+                        ) : (
+                          <span className="text-[#004183] font-extrabold">
+                            Anotado por: #{players.find(pl => pl.id === selectedSubjectId)?.number} {players.find(pl => pl.id === selectedSubjectId)?.alias || players.find(pl => pl.id === selectedSubjectId)?.name}
+                          </span>
+                        )}
+                      </span>
+                    </div>
 
-                {/* ROW 1: 6 SMALL BUTTONS (5 ON COURT PLAYERS + 1 [RIVAL]) */}
-                <div>
-                  <p className="text-[8px] font-black uppercase text-slate-400 tracking-wider mb-1">
-                    1. Autor del Tiro (Toca uno)
-                  </p>
-                  <div className="grid grid-cols-6 gap-1 select-none">
-                    {onCourtPlayers.map(p => {
-                      const isSelected = selectedSubjectId === p.id;
-                      return (
+                    <p className="text-[8.5px] font-black uppercase text-slate-500 tracking-wider text-center">
+                      Tipo de Gol (3x5 • Toca para guardar):
+                    </p>
+
+                    <div className="grid grid-cols-3 gap-1.5 max-h-64 overflow-y-auto pr-0.5 custom-scrollbar">
+                      {GOAL_TYPES.map(gt => (
                         <button
-                          key={p.id}
+                          key={gt}
                           type="button"
-                          onClick={() => setSelectedSubjectId(p.id)}
-                          className={`relative p-1 rounded-xl flex flex-col items-center justify-center transition border ${
-                            isSelected
-                              ? 'border-[#004183] bg-blue-50/50 ring-2 ring-[#004183]/15'
-                              : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50/70'
-                          }`}
-                          title={`${p.alias || p.name} (#${p.number})`}
+                          onClick={() => {
+                            if (selectedSubjectId === 'rival') {
+                              handleRecordShot('rival', 'goal', undefined, gt);
+                            } else {
+                              handleRecordShot('local', 'goal', selectedSubjectId || undefined, gt);
+                            }
+                          }}
+                          className="py-2 px-1 font-bold rounded-xl text-[8.5px] border transition text-center leading-tight hover:shadow-xs active:scale-95 cursor-pointer select-none flex items-center justify-center min-h-[35px] bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-950 border-emerald-200/90 shadow-xs"
                         >
-                          <div className="w-7 h-7 rounded-full overflow-hidden relative shrink-0 bg-slate-100 border border-slate-200">
-                            {p.photo ? (
-                              <img referrerPolicy="no-referrer" src={p.photo} alt={p.alias || p.name} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full bg-[#004183] text-[#FFD700] font-black text-[8px] flex items-center justify-center">
-                                {(p.alias || p.name).substring(0, 2)}
+                          {gt}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button 
+                      type="button" 
+                      onClick={() => setShotStep('team_select')} 
+                      className="py-1 text-slate-400 hover:text-slate-700 text-[9px] font-bold underline text-center cursor-pointer"
+                    >
+                      ← Cambiar autor o resultado
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-center pb-1 border-b border-slate-100 flex items-center justify-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-[#FFD700] rounded-full"></span>
+                      <span className="font-black text-[10px] text-[#004183] uppercase tracking-wider">REGISTRO RÁPIDO DE TIRO</span>
+                    </div>
+
+                    {/* ROW 1: 6 SMALL BUTTONS (5 ON COURT PLAYERS + 1 [RIVAL]) */}
+                    <div>
+                      <p className="text-[8px] font-black uppercase text-slate-400 tracking-wider mb-1">
+                        1. Autor del Tiro (Toca uno)
+                      </p>
+                      <div className="grid grid-cols-6 gap-1 select-none">
+                        {onCourtPlayers.map(p => {
+                          const isSelected = selectedSubjectId === p.id;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setSelectedSubjectId(p.id)}
+                              className={`relative p-1 rounded-xl flex flex-col items-center justify-center transition border ${
+                                isSelected
+                                  ? 'border-[#004183] bg-blue-50/50 ring-2 ring-[#004183]/15'
+                                  : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50/70'
+                              }`}
+                              title={`${p.alias || p.name} (#${p.number})`}
+                            >
+                              <div className="w-7 h-7 rounded-full overflow-hidden relative shrink-0 bg-slate-100 border border-slate-200">
+                                {p.photo ? (
+                                  <img referrerPolicy="no-referrer" src={p.photo} alt={p.alias || p.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full bg-[#004183] text-[#FFD700] font-black text-[8px] flex items-center justify-center">
+                                    {(p.alias || p.name).substring(0, 2)}
+                                  </div>
+                                )}
                               </div>
-                            )}
+                              <span className={`text-[8px] font-mono font-black mt-0.5 leading-none px-1 rounded-full ${
+                                isSelected ? 'bg-[#004183] text-white' : 'text-slate-500 bg-slate-100'
+                              }`}>
+                                #{p.number}
+                              </span>
+                            </button>
+                          );
+                        })}
+
+                        {/* [RIVAL] BUTTON */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSubjectId('rival')}
+                          className={`p-1 rounded-xl flex flex-col items-center justify-center transition border ${
+                            selectedSubjectId === 'rival'
+                              ? 'border-rose-500 bg-rose-50 ring-2 ring-rose-500/20'
+                              : 'border-slate-100 hover:border-rose-300 hover:bg-rose-50/20'
+                          }`}
+                          title="Tiro del Rival"
+                        >
+                          <div className="w-7 h-7 rounded-full bg-rose-500 text-white font-black text-[12px] flex items-center justify-center border border-rose-600 select-none">
+                            R
                           </div>
-                          <span className={`text-[8px] font-mono font-black mt-0.5 leading-none px-1 rounded-full ${
-                            isSelected ? 'bg-[#004183] text-white' : 'text-slate-500 bg-slate-100'
+                          <span className={`text-[8px] font-black mt-0.5 leading-none px-1 rounded-full ${
+                            selectedSubjectId === 'rival' ? 'bg-rose-600 text-white' : 'text-rose-600 bg-rose-50'
                           }`}>
-                            #{p.number}
+                            RIVAL
                           </span>
                         </button>
-                      );
-                    })}
-
-                    {/* [RIVAL] BUTTON */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSubjectId('rival')}
-                      className={`p-1 rounded-xl flex flex-col items-center justify-center transition border ${
-                        selectedSubjectId === 'rival'
-                          ? 'border-rose-500 bg-rose-50 ring-2 ring-rose-500/20'
-                          : 'border-slate-100 hover:border-rose-300 hover:bg-rose-50/20'
-                      }`}
-                      title="Tiro del Rival"
-                    >
-                      <div className="w-7 h-7 rounded-full bg-rose-500 text-white font-black text-[12px] flex items-center justify-center border border-rose-600 select-none">
-                        R
                       </div>
-                      <span className={`text-[8px] font-black mt-0.5 leading-none px-1 rounded-full ${
-                        selectedSubjectId === 'rival' ? 'bg-rose-600 text-white' : 'text-rose-600 bg-rose-50'
-                      }`}>
-                        RIVAL
-                      </span>
-                    </button>
-                  </div>
-                </div>
+                    </div>
 
-                {/* ROW 2: 3 COLORFUL OUTCOME ACTION BUTTONS OR GOAL TYPE */}
-                <div className="border-t border-slate-50 pt-1.5">
-                  {shotStep === 'goal_type' ? (
-                    <>
-                      <p className="text-[8px] font-black uppercase text-slate-400 tracking-wider mb-1">
-                        3. Tipo de Gol (Guarda y cierra al pulsar)
-                      </p>
-                      <div className="grid grid-cols-1 gap-1.5 pt-0.5">
-                        {(['Balón corrido', 'Balón parado', 'Transición'] as const).map(gt => (
-                          <button
-                            key={gt}
-                            type="button"
-                            onClick={() => {
-                              if (selectedSubjectId === 'rival') {
-                                handleRecordShot('rival', 'goal', undefined, gt);
-                              } else {
-                                handleRecordShot('local', 'goal', selectedSubjectId || undefined, gt);
-                              }
-                            }}
-                            className="py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-lg text-[9px] border border-emerald-200 transition cursor-pointer"
-                          >
-                            {gt}
-                          </button>
-                        ))}
-                        <button 
-                          type="button" 
-                          onClick={() => setShotStep('team_select')} 
-                          className="py-1 text-slate-400 hover:text-slate-600 text-[8px] underline"
-                        >
-                          Atrás
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
+                    {/* ROW 2: 3 COLORFUL OUTCOME ACTION BUTTONS */}
+                    <div className="border-t border-slate-50 pt-1.5">
                       <p className="text-[8px] font-black uppercase text-slate-400 tracking-wider mb-1">
                         2. Resultado (Guarda y cierra al pulsar)
                       </p>
@@ -2263,22 +2294,22 @@ export default function LiveTracker({
                           <span>GOL</span>
                         </button>
                       </div>
-                    </>
-                  )}
-                </div>
+                    </div>
 
-                {selectedSubjectId ? (
-                  <p className="text-[8px] text-[#004183] font-bold text-center leading-tight bg-blue-50/50 p-1 rounded-md border border-blue-200/20 animate-pulse">
-                    Acción enfocada en: {
-                      selectedSubjectId === 'rival'
-                        ? 'ATAQUE RIVAL'
-                        : `JUGADOR/A LOCAL #${players.find(pl => pl.id === selectedSubjectId)?.number}`
-                    }
-                  </p>
-                ) : (
-                  <p className="text-[8px] text-amber-600 font-bold text-center leading-tight bg-amber-50/50 p-1 rounded border border-yellow-105/30">
-                    Paso 1: Toca un/a jugador/a arriba. Paso 2: Toca el resultado.
-                  </p>
+                    {selectedSubjectId ? (
+                      <p className="text-[8px] text-[#004183] font-bold text-center leading-tight bg-blue-50/50 p-1 rounded-md border border-blue-200/20 animate-pulse">
+                        Acción enfocada en: {
+                          selectedSubjectId === 'rival'
+                            ? 'ATAQUE RIVAL'
+                            : `JUGADOR/A LOCAL #${players.find(pl => pl.id === selectedSubjectId)?.number}`
+                        }
+                      </p>
+                    ) : (
+                      <p className="text-[8px] text-amber-600 font-bold text-center leading-tight bg-amber-50/50 p-1 rounded border border-yellow-105/30">
+                        Paso 1: Toca un/a jugador/a arriba. Paso 2: Toca el resultado.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             )}
