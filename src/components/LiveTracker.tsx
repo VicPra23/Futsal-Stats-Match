@@ -2528,8 +2528,13 @@ export default function LiveTracker({
                           : 'border-slate-200'
                     }`}
                   >
-                    {/* Corner badges: Cards */}
-                    <div className="absolute top-1 right-1 flex gap-0.5">
+                    {/* Top Right: Cumulative time played & cards */}
+                    <div className="absolute top-1 right-1 flex items-center gap-1">
+                      {live.secondsPlayed > 0 && (
+                        <span className="text-[7.5px] text-slate-600 font-bold font-mono bg-slate-100/90 px-1 py-0.5 rounded leading-none border border-slate-200/40" title="Tiempo total jugado en esta parte">
+                          {displayChronometer(live.secondsPlayed)}
+                        </span>
+                      )}
                       {live.yellows > 0 && (
                         <div className="w-1.5 h-2.5 bg-yellow-400 rounded-2xs border border-yellow-500 shadow-2xs block" title={`${live.yellows} ${live.yellows === 1 ? 'Tarjeta Amarilla' : 'Tarjetas Amarillas'}`}></div>
                       )}
@@ -2541,15 +2546,8 @@ export default function LiveTracker({
                       )}
                     </div>
 
-                    {/* Left: display cumulative time played inside the bench card */}
-                    {live.secondsPlayed > 0 && (
-                      <span className="absolute top-1 left-1 text-[7.5px] text-slate-600 font-bold font-mono bg-slate-100/90 px-1 py-0.5 rounded leading-none border border-slate-200/40" title="Tiempo total jugado en esta parte">
-                        {displayChronometer(live.secondsPlayed)}
-                      </span>
-                    )}
-
                     {/* Horizontal Player info row */}
-                    <div className="flex items-center gap-1.5 w-full mt-2.5 mb-1.5">
+                    <div className="flex items-center gap-1.5 w-full mt-2 mb-1.5">
                       {/* Avatar / Photo */}
                       <div className="relative w-7 h-7 select-none shrink-0">
                         {p.photo ? (
