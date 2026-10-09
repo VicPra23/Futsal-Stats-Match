@@ -1580,7 +1580,7 @@ export default function LiveTracker({
                 <img
                   referrerPolicy="no-referrer"
                   src="https://api.clupik.com/clubs/10590/images/navbar.png"
-                  alt="FS Talavera Femenino"
+                  alt="FS Talavera"
                   className="w-5 h-5 object-contain"
                 />
                 Quinteto Titular

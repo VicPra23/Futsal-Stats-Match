@@ -565,7 +565,7 @@ const drawPageHeader = (doc: jsPDF, title: string, subtitle: string, pageNum: nu
   doc.setTextColor(255, 255, 255); // White sub text
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  doc.text('CLUB DE FÚTBOL SALA FEMENINO • INFORMES TÁCTICOS', 36, 23);
+  doc.text('CLUB DE FÚTBOL SALA • INFORMES TÁCTICOS', 36, 23);
 
   // Document Title
   doc.setTextColor(255, 255, 255);
@@ -1553,7 +1553,7 @@ export const exportTeamReportToPDF = (
   // --- PAGE 2: LÍDERES DE TEMPORADA ---
   // ==========================================
   doc.addPage();
-  drawPageHeader(doc, 'LÍDERES Y DESTACADAS DE LA TEMPORADA', headerSubtitle, 2, totalPages, logoBase64);
+  drawPageHeader(doc, 'CUADRO DE HONOR Y LÍDERES DE TEMPORADA', headerSubtitle, 2, totalPages, logoBase64);
 
   doc.setTextColor(40, 40, 40);
   doc.setFont('helvetica', 'bold');
@@ -1569,12 +1569,12 @@ export const exportTeamReportToPDF = (
   const col1X = 15;
   const col2X = 110;
 
-  // --- ROW 1: GOLEADORAS & MINUTOS ---
-  // Left: Goleadoras
+  // --- ROW 1: GOLEADORES/AS & MINUTOS ---
+  // Left: Goleadores/as
   doc.setTextColor(51, 65, 85);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
-  doc.text('Máximas Goleadoras', col1X, leadersY + 4);
+  doc.text('Máximos/as Goleadores/as', col1X, leadersY + 4);
 
   const scorersTableBody = topScorersList.length > 0 
     ? topScorersList.map((s, idx) => [
@@ -1588,7 +1588,7 @@ export const exportTeamReportToPDF = (
     startY: leadersY + 6,
     margin: { left: col1X },
     tableWidth: colW,
-    head: [['Pos', 'Jugadora', 'Goles']],
+    head: [['Pos', 'Jugador/a', 'Goles']],
     body: scorersTableBody,
     theme: 'striped',
     headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
@@ -1618,7 +1618,7 @@ export const exportTeamReportToPDF = (
     startY: leadersY + 6,
     margin: { left: col2X },
     tableWidth: colW,
-    head: [['Pos', 'Jugadora', 'Minutos']],
+    head: [['Pos', 'Jugador/a', 'Minutos']],
     body: minutesTableBody,
     theme: 'striped',
     headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
@@ -1651,7 +1651,7 @@ export const exportTeamReportToPDF = (
     startY: row2Y + 6,
     margin: { left: col1X },
     tableWidth: colW,
-    head: [['Pos', 'Jugadora', 'Tiros']],
+    head: [['Pos', 'Jugador/a', 'Tiros']],
     body: shotsTableBody,
     theme: 'striped',
     headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
@@ -1682,7 +1682,7 @@ export const exportTeamReportToPDF = (
     startY: row2Y + 6,
     margin: { left: col2X },
     tableWidth: colW,
-    head: [['Pos', 'Jugadora', 'A', 'R']],
+    head: [['Pos', 'Jugador/a', 'A', 'R']],
     body: cardsTableBody,
     theme: 'striped',
     headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
@@ -1695,7 +1695,7 @@ export const exportTeamReportToPDF = (
     }
   });
 
-  // --- ROW 3: PORTERAS & EFICACIA ---
+  // --- ROW 3: PORTERÍA & EFICACIA ---
   const row3Y = Math.max((doc as any).lastAutoTable?.finalY || 138, 142) + 5;
 
   const topGoalkeepersList = [...playerStatsList]
@@ -1708,7 +1708,7 @@ export const exportTeamReportToPDF = (
     .sort((a, b) => (b.goals / b.shots) - (a.goals / a.shots) || b.goals - a.goals)
     .slice(0, 5);
 
-  // Left: Porteras
+  // Left: Portería
   doc.setTextColor(51, 65, 85);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
@@ -1732,7 +1732,7 @@ export const exportTeamReportToPDF = (
     startY: row3Y + 6,
     margin: { left: col1X },
     tableWidth: colW,
-    head: [['Pos', 'Portera', 'Par.', 'Enc.', '% Efic.']],
+    head: [['Pos', 'Portero/a', 'Par.', 'Enc.', '% Efic.']],
     body: gkTableBody,
     theme: 'striped',
     headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
@@ -1768,7 +1768,7 @@ export const exportTeamReportToPDF = (
     startY: row3Y + 6,
     margin: { left: col2X },
     tableWidth: colW,
-    head: [['Pos', 'Jugadora', 'G/Tir', '% Acierto']],
+    head: [['Pos', 'Jugador/a', 'G/Tir', '% Acierto']],
     body: accTableBody,
     theme: 'striped',
     headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 6.8, fontStyle: 'bold' },
@@ -1890,7 +1890,7 @@ export const exportPlayerComparisonsToPDF = (selectedPlayers: Player[], matches:
   });
 
   const logoBase64 = preloadedLogoBase64;
-  drawPageHeader(doc, 'COMPARATIVA INDIVIDUAL DE JUGADORAS', 'Análisis Comparativo Directo', 1, 1, logoBase64);
+  drawPageHeader(doc, 'COMPARATIVA INDIVIDUAL DE LA PLANTILLA', 'Análisis Comparativo Directo', 1, 1, logoBase64);
 
   doc.setTextColor(40, 40, 40);
   doc.setFont('helvetica', 'bold');
@@ -1904,13 +1904,13 @@ export const exportPlayerComparisonsToPDF = (selectedPlayers: Player[], matches:
   if (selectedPlayers.length === 0) {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text('Por favor, selecciona al menos una jugadora en el panel para exportar el informe comparativo.', 15, 60);
+    doc.text('Por favor, selecciona al menos un/a jugador/a en el panel para exportar el informe comparativo.', 15, 60);
     doc.save('FS_Talavera_Comparativa_Vacia.pdf');
     return;
   }
 
   // Row generation comparing metrics
-  const headers = [['Métrica / Jugadora', ...selectedPlayers.map(p => `${p.name} (#${p.number})`)]];
+  const headers = [['Métrica / Jugador/a', ...selectedPlayers.map(p => `${p.name} (#${p.number})`)]];
 
   // Aggregate metrics for each player
   const fetchMetrics = (pId: string) => {
@@ -2038,7 +2038,7 @@ export const exportPlayerComparisonsToPDF = (selectedPlayers: Player[], matches:
     }
   });
 
-  doc.save(`FS_Talavera_Comparativa_Jugadoras.pdf`);
+  doc.save(`FS_Talavera_Comparativa_Plantilla.pdf`);
 };
 
 // --- TECHNICAL DOSSIER FOR REPRESENTED PLAYERS (INDIVIDUAL & BULK SQUAD CARD EXPORT) ---
@@ -2160,7 +2160,7 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
   const posTableData = Object.entries(positionCounts).map(([pos, count]) => [pos, count.toString()]);
   autoTable(doc, {
     startY: 75,
-    head: [['Demarcación', 'Número de Jugadoras']],
+    head: [['Demarcación', 'Nº Jugadores/as']],
     body: posTableData,
     theme: 'grid',
     headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10 },
@@ -2175,7 +2175,7 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
   const footTableData = Object.entries(footCounts).map(([foot, count]) => [foot, count.toString()]);
   autoTable(doc, {
     startY: finalYPos,
-    head: [['Pie Dominante', 'Número de Jugadoras']],
+    head: [['Pie Dominante', 'Nº Jugadores/as']],
     body: footTableData,
     theme: 'grid',
     headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10 },
@@ -2189,7 +2189,7 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     doc.addPage();
 
     // 1. HEADER (Club Logo/Shield & Banner)
-    const titleStr = 'FICHA TÉCNICA DE JUGADORA';
+    const titleStr = p.gender === 'M' ? 'FICHA TÉCNICA DE JUGADOR' : (p.gender === 'F' ? 'FICHA TÉCNICA DE JUGADORA' : 'FICHA TÉCNICA INDIVIDUAL');
     const subtitleStr = `${p.alias || p.name} • Dorsal #${p.number}`;
     drawPageHeader(doc, titleStr, subtitleStr, idx + 2, totalPages, logoBase64);
 
@@ -2232,7 +2232,8 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     doc.setTextColor(110, 110, 110);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
-    doc.text('DATOS DE LA JUGADORA', 57, 48);
+    const bioCardTitle = p.gender === 'M' ? 'DATOS DEL JUGADOR' : (p.gender === 'F' ? 'DATOS DE LA JUGADORA' : 'DATOS DEL/LA JUGADOR/A');
+    doc.text(bioCardTitle, 57, 48);
 
     doc.setTextColor(0, 41, 131);
     doc.setFont('helvetica', 'bold');
@@ -2510,7 +2511,7 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
   });
 
   const finalFileName = singleFileName || (playersToExport.length === 1 
-    ? `FS_Talavera_Ficha_${playersToExport[0].alias.replace(/\s+/g, '_') || 'Jugadora'}.pdf`
+    ? `FS_Talavera_Ficha_${playersToExport[0].alias.replace(/\s+/g, '_') || 'Jugador'}.pdf`
     : `FS_Talavera_Dossier_Plantilla.pdf`);
 
   doc.save(finalFileName);

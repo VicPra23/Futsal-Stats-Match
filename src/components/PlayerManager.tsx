@@ -552,7 +552,7 @@ export default function PlayerManager({
             <img
               referrerPolicy="no-referrer"
               src="https://api.clupik.com/clubs/10590/images/navbar.png"
-              alt="FS Talavera Femenino"
+              alt="FS Talavera"
               className="w-full h-full object-contain"
             />
           </div>
@@ -1584,7 +1584,7 @@ export default function PlayerManager({
                 </div>
                 <div className="text-center sm:text-left flex-1">
                   <span className="bg-[#004183]/10 text-[#004183] font-black text-[9px] uppercase tracking-widest px-2.5 py-0.5 rounded-full select-none">
-                    FS TALAVERA FEMENINO
+                    FS TALAVERA
                   </span>
                   <h3 className="text-xl font-black text-slate-900 leading-tight mt-1">
                     {selectedPlayer.name}
