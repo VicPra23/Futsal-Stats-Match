@@ -2273,37 +2273,48 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     doc.text(p.dominantLeg || 'Diestra', 141, 66);
 
     // 4. STATISTICAL PERFORMANCE COMPUTATION
-    let totalSecondsPlayed = 0;
-    let totalShots = 0;
-    let totalGoals = 0;
-    let totalYellows = 0;
-    let totalRedCards = 0;
-    let totalSaves = 0;
-    let totalGoalsConceded = 0;
-    let matchesPlayedCount = 0;
+    const computeStats = (filter?: 'oficial' | 'amistoso') => {
+      let sec = 0;
+      let sht = 0;
+      let gls = 0;
+      let yel = 0;
+      let red = 0;
+      let svs = 0;
+      let con = 0;
+      let count = 0;
 
-    matches.forEach(m => {
-      const perf = m.stats[p.id];
-      if (perf) {
-        if (perf.secondsPlayed > 0) {
-          matchesPlayedCount++;
+      matches.forEach(m => {
+        if (filter && m.matchType !== filter) return;
+        const perf = m.stats[p.id];
+        if (perf) {
+          if (perf.secondsPlayed > 0) count++;
+          sec += perf.secondsPlayed || 0;
+          sht += perf.shots || 0;
+          gls += perf.goals || 0;
+          yel += perf.yellows || 0;
+          if (perf.redCard) red++;
+          svs += perf.saves || 0;
+          con += perf.goalsConceded || 0;
         }
-        totalSecondsPlayed += perf.secondsPlayed || 0;
-        totalShots += perf.shots || 0;
-        totalGoals += perf.goals || 0;
-        totalYellows += perf.yellows || 0;
-        if (perf.redCard) {
-          totalRedCards++;
-        }
-        totalSaves += perf.saves || 0;
-        totalGoalsConceded += perf.goalsConceded || 0;
-      }
-    });
+      });
+
+      return { sec, sht, gls, yel, red, svs, con, count };
+    };
+
+    const statsTot = computeStats();
+    const statsOfi = computeStats('oficial');
+    const statsAmi = computeStats('amistoso');
+
+    const totalSecondsPlayed = statsTot.sec;
+    const totalShots = statsTot.sht;
+    const totalGoals = statsTot.gls;
+    const totalYellows = statsTot.yel;
+    const totalRedCards = statsTot.red;
+    const totalSaves = statsTot.svs;
+    const totalGoalsConceded = statsTot.con;
+    const matchesPlayedCount = statsTot.count;
 
     const isGK = p.position === 'Portero/a';
-    const avgMinutes = matchesPlayedCount > 0 
-      ? formatTime(Math.floor(totalSecondsPlayed / matchesPlayedCount))
-      : '00:00';
     const shootingAccuracy = totalShots > 0 
       ? `${Math.round((totalGoals / totalShots) * 100)}%`
       : '0%';
@@ -2322,7 +2333,7 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     doc.setTextColor(110, 110, 110);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
-    doc.text('PARTIDOS Y TIEMPO', 18, kpiY + 4);
+    doc.text('PARTIDOS Y TIEMPO (TOT)', 18, kpiY + 4);
     doc.setTextColor(0, 65, 131);
     doc.setFontSize(8.2);
     doc.text(`${matchesPlayedCount} Partidos`, 18, kpiY + 9);
@@ -2391,15 +2402,99 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     const avgS = matchesPlayedCount > 0 ? (totalShots / matchesPlayedCount).toFixed(2) : '0.00';
     doc.text(`${avgS} Tiros / match`, 15 + 3 * (kpiW + kpiGap) + 3, kpiY + 13.2);
 
-    // 5. HISTORICAL PARTICIPATION LIST (TABLE)
+    // 5. BREAKDOWN SUMMARY TABLE: TOTALES, OFICIALES Y AMISTOSOS
     doc.setTextColor(0, 65, 131);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.text('HISTORIAL DE PARTIDOS PARTICIPADOS', 15, 103);
+    doc.setFontSize(8.5);
+    doc.text('RESUMEN DE RENDIMIENTO (TOTALES • OFICIALES • AMISTOSOS)', 15, 101.5);
+
+    const breakdownHeaders = [[
+      'Competición',
+      'Partidos',
+      'Tiempo Jugado',
+      'Goles',
+      'Tiros',
+      '% Eficacia',
+      isGK ? 'Paradas / Enc' : 'Tarjetas (A / R)'
+    ]];
+
+    const breakdownBody = [
+      [
+        'Partidos Oficiales',
+        `${statsOfi.count}`,
+        formatTime(statsOfi.sec),
+        `${statsOfi.gls}`,
+        `${statsOfi.sht}`,
+        statsOfi.sht > 0 ? `${Math.round((statsOfi.gls / statsOfi.sht) * 100)}%` : '0%',
+        isGK ? `${statsOfi.svs} / -${statsOfi.con}` : `${statsOfi.yel}A ${statsOfi.red ? `+ ${statsOfi.red}R` : ''}`
+      ],
+      [
+        'Partidos Amistosos',
+        `${statsAmi.count}`,
+        formatTime(statsAmi.sec),
+        `${statsAmi.gls}`,
+        `${statsAmi.sht}`,
+        statsAmi.sht > 0 ? `${Math.round((statsAmi.gls / statsAmi.sht) * 100)}%` : '0%',
+        isGK ? `${statsAmi.svs} / -${statsAmi.con}` : `${statsAmi.yel}A ${statsAmi.red ? `+ ${statsAmi.red}R` : ''}`
+      ],
+      [
+        'TOTALES ACUMULADOS',
+        `${statsTot.count}`,
+        formatTime(statsTot.sec),
+        `${statsTot.gls}`,
+        `${statsTot.sht}`,
+        statsTot.sht > 0 ? `${Math.round((statsTot.gls / statsTot.sht) * 100)}%` : '0%',
+        isGK ? `${statsTot.svs} / -${statsTot.con}` : `${statsTot.yel}A ${statsTot.red ? `+ ${statsTot.red}R` : ''}`
+      ]
+    ];
+
+    autoTable(doc, {
+      startY: 103,
+      head: breakdownHeaders,
+      body: breakdownBody,
+      theme: 'grid',
+      headStyles: {
+        fillColor: [0, 65, 131],
+        textColor: [255, 255, 255],
+        fontSize: 7,
+        halign: 'center',
+        fontStyle: 'bold'
+      },
+      styles: {
+        fontSize: 6.8,
+        cellPadding: 1.5,
+        halign: 'center'
+      },
+      columnStyles: {
+        0: { halign: 'left', fontStyle: 'bold', cellWidth: 42 },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 26 },
+        3: { cellWidth: 18, fontStyle: 'bold' },
+        4: { cellWidth: 18 },
+        5: { cellWidth: 22 },
+        6: { cellWidth: 34 }
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.row.index === 2) {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [240, 245, 255];
+          data.cell.styles.textColor = [0, 65, 131];
+        }
+      },
+      margin: { left: 15 },
+      tableWidth: 180
+    });
+
+    // 6. HISTORICAL PARTICIPATION LIST (TABLE)
+    const nextY = ((doc as any).lastAutoTable?.finalY || 126) + 5;
+    doc.setTextColor(0, 65, 131);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.text('HISTORIAL DE PARTIDOS PARTICIPADOS', 15, nextY);
 
     doc.setDrawColor(0, 65, 131);
-    doc.setLineWidth(0.4);
-    doc.line(15, 104.5, 195, 104.5);
+    doc.setLineWidth(0.35);
+    doc.line(15, nextY + 1.5, 195, nextY + 1.5);
 
     const histHeaders = [[
       'Fecha',
@@ -2445,7 +2540,7 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     }
 
     autoTable(doc, {
-      startY: 106.5,
+      startY: nextY + 3.5,
       head: histHeaders,
       body: histBody,
       theme: 'striped',
