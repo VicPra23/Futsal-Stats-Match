@@ -84,6 +84,8 @@ export default function PlayerManager({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [matchTypeFilter, setMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('all');
+  const [modalMatchTypeFilter, setModalMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('all');
 
   // Form State for new player
   const [name, setName] = useState('');
@@ -126,7 +128,7 @@ export default function PlayerManager({
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   // Player statistics calculations
-  const getPlayerStats = (playerId: string) => {
+  const getPlayerStats = (playerId: string, filter: 'all' | 'oficial' | 'amistoso' = 'all') => {
     let secondsPlayed = 0;
     let shots = 0;
     let goals = 0;
@@ -137,6 +139,7 @@ export default function PlayerManager({
     let matchesParticipated = 0;
 
     matches.forEach(match => {
+      if (filter !== 'all' && match.matchType !== filter) return;
       const perf = match.stats[playerId];
       if (perf) {
         if (perf.secondsPlayed > 0) {
@@ -571,6 +574,43 @@ export default function PlayerManager({
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-900 transition"
             />
+          </div>
+
+          {/* Selector de Competición / Tipo de Partido */}
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80 shrink-0 select-none">
+            <button
+              type="button"
+              onClick={() => setMatchTypeFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                matchTypeFilter === 'all'
+                  ? 'bg-[#004183] text-white shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Todos
+            </button>
+            <button
+              type="button"
+              onClick={() => setMatchTypeFilter('oficial')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                matchTypeFilter === 'oficial'
+                  ? 'bg-[#004183] text-white shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Oficiales
+            </button>
+            <button
+              type="button"
+              onClick={() => setMatchTypeFilter('amistoso')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                matchTypeFilter === 'amistoso'
+                  ? 'bg-[#004183] text-white shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Amistosos
+            </button>
           </div>
           {/* DOSSIER COMPLETO DE PLANTILLA PDF */}
           <button
@@ -1137,12 +1177,17 @@ export default function PlayerManager({
                   <div className="grid grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 md:gap-6">
                     {sortedPlayers.map(player => {
                       const isEditing = editingId === player.id;
-                      const stats = getPlayerStats(player.id);
+                      const stats = getPlayerStats(player.id, matchTypeFilter);
 
                       return (
                         <div 
                           key={player.id}
-                          onClick={() => !isEditing && setSelectedPlayer(player)}
+                          onClick={() => {
+                            if (!isEditing) {
+                              setModalMatchTypeFilter(matchTypeFilter);
+                              setSelectedPlayer(player);
+                            }
+                          }}
                           className={`bg-white rounded-3xl border p-4 transition duration-155 flex flex-col justify-between relative group ${
                             isEditing 
                               ? 'border-blue-900 shadow-md ring-1 ring-blue-900/10' 
@@ -1544,7 +1589,14 @@ export default function PlayerManager({
 
       {/* 5. VISTA DE PERFIL COMPLETO - PLAYER PROFILE BIG MODAL */}
       {selectedPlayer && (() => {
-        const stats = getPlayerStats(selectedPlayer.id);
+        const statsAll = getPlayerStats(selectedPlayer.id, 'all');
+        const statsOficial = getPlayerStats(selectedPlayer.id, 'oficial');
+        const statsAmistoso = getPlayerStats(selectedPlayer.id, 'amistoso');
+        const stats = modalMatchTypeFilter === 'all' 
+          ? statsAll 
+          : modalMatchTypeFilter === 'oficial' 
+            ? statsOficial 
+            : statsAmistoso;
         const age = calculateAge(selectedPlayer.birthDate);
         const isGK = selectedPlayer.position === 'Portero/a';
         
@@ -1669,9 +1721,47 @@ export default function PlayerManager({
                 {/* 2. Statistics Column (Requested order: Season Accumulation, Goalkeeper Performance, and Shots vs Goals) */}
                 <div className="space-y-5">
                   <div>
-                    <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider mb-3">
-                      II. Estadísticas de Temporada
-                    </h4>
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                      <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">
+                        II. Estadísticas de Temporada
+                      </h4>
+                      {/* Tabs de tipo de partido */}
+                      <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-[10px] font-bold select-none">
+                        <button
+                          type="button"
+                          onClick={() => setModalMatchTypeFilter('all')}
+                          className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                            modalMatchTypeFilter === 'all'
+                              ? 'bg-[#004183] text-white shadow-xs font-black'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Totales ({statsAll.matchesParticipated})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModalMatchTypeFilter('oficial')}
+                          className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                            modalMatchTypeFilter === 'oficial'
+                              ? 'bg-[#004183] text-white shadow-xs font-black'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Oficiales ({statsOficial.matchesParticipated})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModalMatchTypeFilter('amistoso')}
+                          className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                            modalMatchTypeFilter === 'amistoso'
+                              ? 'bg-[#004183] text-white shadow-xs font-black'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Amistosos ({statsAmistoso.matchesParticipated})
+                        </button>
+                      </div>
+                    </div>
 
                     {/* Season Accumulation Grid */}
                     <div className="grid grid-cols-2 gap-3">
@@ -1739,6 +1829,84 @@ export default function PlayerManager({
                       </div>
                     </div>
                   )}
+
+                  {/* TABLA COMPARATIVA: TOTALES, OFICIALES Y AMISTOSOS */}
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">
+                      Desglose Comparativo
+                    </span>
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-2xs">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 text-[8px] uppercase font-black tracking-wider text-slate-500 border-b border-slate-200/70">
+                            <th className="py-1.5 px-2.5">Tipo</th>
+                            <th className="py-1.5 px-1.5 text-center">Part.</th>
+                            <th className="py-1.5 px-1.5 text-center">Tiempo</th>
+                            <th className="py-1.5 px-1.5 text-center">Goles</th>
+                            <th className="py-1.5 px-1.5 text-center">Tiros</th>
+                            <th className="py-1.5 px-1.5 text-center">% Efic.</th>
+                            <th className="py-1.5 px-2 text-center">{isGK ? 'Par. / Enc.' : 'Sanciones'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-[9px]">
+                          {/* Fila Oficiales */}
+                          <tr 
+                            onClick={() => setModalMatchTypeFilter('oficial')}
+                            className={`cursor-pointer transition hover:bg-blue-50/40 ${modalMatchTypeFilter === 'oficial' ? 'bg-blue-50/70 font-bold' : ''}`}
+                            title="Toca para filtrar por Partidos Oficiales"
+                          >
+                            <td className="py-1.5 px-2.5 font-bold text-blue-900 flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span> Oficiales
+                            </td>
+                            <td className="py-1.5 px-1.5 text-center font-mono font-bold">{statsOficial.matchesParticipated}</td>
+                            <td className="py-1.5 px-1.5 text-center font-mono">{formatTimePlayed(statsOficial.secondsPlayed)}</td>
+                            <td className="py-1.5 px-1.5 text-center font-mono font-bold text-emerald-600">{statsOficial.goals}</td>
+                            <td className="py-1.5 px-1.5 text-center font-mono text-amber-600">{statsOficial.shots}</td>
+                            <td className="py-1.5 px-1.5 text-center font-mono">{statsOficial.shots > 0 ? `${Math.round((statsOficial.goals / statsOficial.shots) * 100)}%` : '0%'}</td>
+                            <td className="py-1.5 px-2 text-center font-mono text-[8.5px]">
+                              {isGK ? `${statsOficial.saves} / -${statsOficial.goalsConceded}` : `${statsOficial.yellows}A ${statsOficial.redCards ? `+ ${statsOficial.redCards}R` : ''}`}
+                            </td>
+                          </tr>
+                          {/* Fila Amistosos */}
+                          <tr 
+                            onClick={() => setModalMatchTypeFilter('amistoso')}
+                            className={`cursor-pointer transition hover:bg-amber-50/40 ${modalMatchTypeFilter === 'amistoso' ? 'bg-amber-50/70 font-bold' : ''}`}
+                            title="Toca para filtrar por Partidos Amistosos"
+                          >
+                            <td className="py-1.5 px-2.5 font-bold text-amber-900 flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span> Amistosos
+                            </td>
+                            <td className="py-1.5 px-1.5 text-center font-mono font-bold">{statsAmistoso.matchesParticipated}</td>
+                            <td className="py-1.5 px-1.5 text-center font-mono">{formatTimePlayed(statsAmistoso.secondsPlayed)}</td>
+                            <td className="py-1.5 px-1.5 text-center font-mono font-bold text-emerald-600">{statsAmistoso.goals}</td>
+                            <td className="py-1.5 px-1.5 text-center font-mono text-amber-600">{statsAmistoso.shots}</td>
+                            <td className="py-1.5 px-1.5 text-center font-mono">{statsAmistoso.shots > 0 ? `${Math.round((statsAmistoso.goals / statsAmistoso.shots) * 100)}%` : '0%'}</td>
+                            <td className="py-1.5 px-2 text-center font-mono text-[8.5px]">
+                              {isGK ? `${statsAmistoso.saves} / -${statsAmistoso.goalsConceded}` : `${statsAmistoso.yellows}A ${statsAmistoso.redCards ? `+ ${statsAmistoso.redCards}R` : ''}`}
+                            </td>
+                          </tr>
+                          {/* Fila Totales */}
+                          <tr 
+                            onClick={() => setModalMatchTypeFilter('all')}
+                            className={`cursor-pointer transition bg-slate-50/70 hover:bg-slate-100/70 font-black ${modalMatchTypeFilter === 'all' ? 'bg-blue-100/40 ring-1 ring-inset ring-blue-900/10' : ''}`}
+                            title="Toca para ver los Totales globales"
+                          >
+                            <td className="py-2 px-2.5 text-[#004183] flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#004183] shrink-0"></span> TOTALES
+                            </td>
+                            <td className="py-2 px-1.5 text-center font-mono text-[#004183]">{statsAll.matchesParticipated}</td>
+                            <td className="py-2 px-1.5 text-center font-mono text-slate-800">{formatTimePlayed(statsAll.secondsPlayed)}</td>
+                            <td className="py-2 px-1.5 text-center font-mono font-black text-emerald-600">{statsAll.goals}</td>
+                            <td className="py-2 px-1.5 text-center font-mono text-amber-700">{statsAll.shots}</td>
+                            <td className="py-2 px-1.5 text-center font-mono">{statsAll.shots > 0 ? `${Math.round((statsAll.goals / statsAll.shots) * 100)}%` : '0%'}</td>
+                            <td className="py-2 px-2 text-center font-mono text-[8.5px]">
+                              {isGK ? `${statsAll.saves} / -${statsAll.goalsConceded}` : `${statsAll.yellows}A ${statsAll.redCards ? `+ ${statsAll.redCards}R` : ''}`}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
 
                   {/* RECHARTS INDIVIDUAL PERFORMANCE VISUALIZER */}
                   <div>
