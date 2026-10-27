@@ -64,7 +64,7 @@ export default function HistoryList({
   );
   const [competitionFilter, setCompetitionFilter] = useState<
     "ALL" | "oficial" | "amistoso"
-  >("ALL");
+  >("oficial");
   const [seasonFilter, setSeasonFilter] = useState<string>("ALL");
   const [selectedJornadas, setSelectedJornadas] = useState<number[]>([]);
   const [jornadaDropdownOpen, setJornadaDropdownOpen] = useState(false);
@@ -245,9 +245,9 @@ export default function HistoryList({
               }}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900 cursor-pointer text-slate-700 font-sans"
             >
-              <option value="ALL">Todas</option>
-              <option value="oficial">Oficial</option>
-              <option value="amistoso">Amistoso</option>
+              <option value="oficial">Partidos Oficiales</option>
+              <option value="amistoso">Partidos Amistosos</option>
+              <option value="ALL">Todos los partidos</option>
             </select>
           </div>
 

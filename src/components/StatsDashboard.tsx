@@ -140,7 +140,7 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
 
   // States
   const [selectedSeason, setSelectedSeason] = useState<string>(currentRunSeason);
-  const [matchTypeFilter, setMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('all');
+  const [matchTypeFilter, setMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('oficial');
   const [venueFilter, setVenueFilter] = useState<'all' | 'local' | 'visitante'>('all');
   const [goalIntervalView, setGoalIntervalView] = useState<'both' | 'local' | 'rival'>('both');
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
@@ -471,22 +471,18 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
                 </select>
               </div>
 
-              {/* Filter 2: Match Type Buttons */}
-              <div className="flex flex-wrap items-center justify-start md:justify-center gap-1.5">
+              {/* Filter 2: Match Type Select */}
+              <div className="flex items-center justify-start md:justify-center gap-1.5">
                 <span className="text-slate-500 text-[11px] font-bold mr-1">Tipo:</span>
-                {(['all', 'oficial', 'amistoso'] as const).map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setMatchTypeFilter(f)}
-                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase transition cursor-pointer ${
-                      matchTypeFilter === f
-                        ? 'bg-[#004183] text-white border-b-2 border-yellow-400 shadow-sm'
-                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    {f === 'all' ? 'Todos' : f === 'oficial' ? 'Oficiales' : 'Amistosos'}
-                  </button>
-                ))}
+                <select
+                  value={matchTypeFilter}
+                  onChange={(e) => setMatchTypeFilter(e.target.value as any)}
+                  className="bg-slate-50 text-slate-800 text-xs font-bold border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-[#004183] outline-none shadow-sm cursor-pointer"
+                >
+                  <option value="oficial">Partidos Oficiales</option>
+                  <option value="amistoso">Partidos Amistosos</option>
+                  <option value="all">Todos los partidos</option>
+                </select>
               </div>
 
               {/* Filter 3: Venue Buttons */}

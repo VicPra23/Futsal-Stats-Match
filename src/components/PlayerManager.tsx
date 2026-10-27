@@ -84,8 +84,14 @@ export default function PlayerManager({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [matchTypeFilter, setMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('all');
-  const [modalMatchTypeFilter, setModalMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('all');
+  const [matchTypeFilter, setMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('oficial');
+  const [modalMatchTypeFilter, setModalMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('oficial');
+  const [pdfExportModal, setPdfExportModal] = useState<{
+    open: boolean;
+    mode: 'all' | 'single';
+    player?: Player;
+  } | null>(null);
+  const [pdfExportFilter, setPdfExportFilter] = useState<'all' | 'oficial' | 'amistoso'>('oficial');
 
   // Form State for new player
   const [name, setName] = useState('');
@@ -577,45 +583,26 @@ export default function PlayerManager({
           </div>
 
           {/* Selector de Competición / Tipo de Partido */}
-          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80 shrink-0 select-none">
-            <button
-              type="button"
-              onClick={() => setMatchTypeFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                matchTypeFilter === 'all'
-                  ? 'bg-[#004183] text-white shadow-xs font-black'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-slate-500 text-[11px] font-bold">Tipo:</span>
+            <select
+              value={matchTypeFilter}
+              onChange={e => setMatchTypeFilter(e.target.value as any)}
+              className="bg-slate-50 text-slate-800 text-xs font-bold border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-900 outline-none shadow-sm cursor-pointer"
             >
-              Todos
-            </button>
-            <button
-              type="button"
-              onClick={() => setMatchTypeFilter('oficial')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                matchTypeFilter === 'oficial'
-                  ? 'bg-[#004183] text-white shadow-xs font-black'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Oficiales
-            </button>
-            <button
-              type="button"
-              onClick={() => setMatchTypeFilter('amistoso')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                matchTypeFilter === 'amistoso'
-                  ? 'bg-[#004183] text-white shadow-xs font-black'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Amistosos
-            </button>
+              <option value="oficial">Partidos Oficiales</option>
+              <option value="amistoso">Partidos Amistosos</option>
+              <option value="all">Todos los partidos</option>
+            </select>
           </div>
+
           {/* DOSSIER COMPLETO DE PLANTILLA PDF */}
           <button
             type="button"
-            onClick={() => exportPlayerDossierToPDF(players.filter(p => p.isActive), matches || [])}
+            onClick={() => {
+              setPdfExportFilter('oficial');
+              setPdfExportModal({ open: true, mode: 'all' });
+            }}
             disabled={players.length === 0}
             id="btn-export-all-player-dossiers-pdf"
             className="inline-flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider transition border border-slate-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
@@ -1650,7 +1637,10 @@ export default function PlayerManager({
                 <div className="mt-3 sm:mt-0 select-none shrink-0">
                   <button
                     type="button"
-                    onClick={() => exportPlayerDossierToPDF([selectedPlayer], matches || [])}
+                    onClick={() => {
+                      setPdfExportFilter('oficial');
+                      setPdfExportModal({ open: true, mode: 'single', player: selectedPlayer });
+                    }}
                     className="inline-flex items-center gap-1.5 bg-[#004183] hover:bg-blue-900 text-white font-extrabold px-3.5 py-2.5 rounded-xl text-[10px] uppercase tracking-wider transition border-b-2 border-yellow-400 shadow-sm cursor-pointer"
                   >
                     <FileText size={13} />
@@ -1725,41 +1715,18 @@ export default function PlayerManager({
                       <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">
                         II. Estadísticas de Temporada
                       </h4>
-                      {/* Tabs de tipo de partido */}
-                      <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-[10px] font-bold select-none">
-                        <button
-                          type="button"
-                          onClick={() => setModalMatchTypeFilter('all')}
-                          className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                            modalMatchTypeFilter === 'all'
-                              ? 'bg-[#004183] text-white shadow-xs font-black'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
+                      {/* Selector de tipo de partido */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-500 text-[10px] font-bold">Ver:</span>
+                        <select
+                          value={modalMatchTypeFilter}
+                          onChange={e => setModalMatchTypeFilter(e.target.value as any)}
+                          className="bg-slate-50 text-slate-800 text-xs font-bold border border-slate-200 rounded-xl px-2.5 py-1.5 focus:ring-2 focus:ring-[#004183] outline-none shadow-sm cursor-pointer"
                         >
-                          Totales ({statsAll.matchesParticipated})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setModalMatchTypeFilter('oficial')}
-                          className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                            modalMatchTypeFilter === 'oficial'
-                              ? 'bg-[#004183] text-white shadow-xs font-black'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          Oficiales ({statsOficial.matchesParticipated})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setModalMatchTypeFilter('amistoso')}
-                          className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                            modalMatchTypeFilter === 'amistoso'
-                              ? 'bg-[#004183] text-white shadow-xs font-black'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          Amistosos ({statsAmistoso.matchesParticipated})
-                        </button>
+                          <option value="oficial">Oficiales ({statsOficial.matchesParticipated})</option>
+                          <option value="amistoso">Amistosos ({statsAmistoso.matchesParticipated})</option>
+                          <option value="all">Totales ({statsAll.matchesParticipated})</option>
+                        </select>
                       </div>
                     </div>
 
@@ -1948,6 +1915,94 @@ export default function PlayerManager({
           </div>
         );
       })()}
+
+      {/* PDF Export Confirmation & Filter Modal */}
+      {pdfExportModal?.open && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-blue-50 text-[#004183] flex items-center justify-center font-bold">
+                  <FileText size={20} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base">
+                    {pdfExportModal.mode === 'single'
+                      ? `Exportar Ficha: ${pdfExportModal.player?.alias || pdfExportModal.player?.name}`
+                      : 'Exportar Dossier de Plantilla'}
+                  </h3>
+                  <p className="text-xs text-slate-500">Selecciona el tipo de partidos para el informe PDF</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPdfExportModal(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-2 py-1">
+              <label className="text-xs font-bold text-slate-700 block">Tipo de partidos a incluir:</label>
+              <div className="space-y-2">
+                {[
+                  { id: 'oficial', label: 'Partidos Oficiales (Temporada)', desc: 'Recomendado: solo contabiliza la competición oficial' },
+                  { id: 'amistoso', label: 'Partidos Amistosos', desc: 'Solo partidos preparatorios o amistosos' },
+                  { id: 'all', label: 'Todos los partidos', desc: 'Suma global de partidos oficiales y amistosos' }
+                ].map(opt => (
+                  <label
+                    key={opt.id}
+                    onClick={() => setPdfExportFilter(opt.id as any)}
+                    className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition ${
+                      pdfExportFilter === opt.id
+                        ? 'border-[#004183] bg-blue-50/60 ring-1 ring-[#004183]'
+                        : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="pdfFilter"
+                      checked={pdfExportFilter === opt.id}
+                      onChange={() => setPdfExportFilter(opt.id as any)}
+                      className="mt-0.5 text-[#004183] focus:ring-[#004183]"
+                    />
+                    <div>
+                      <p className="text-xs font-black text-slate-900">{opt.label}</p>
+                      <p className="text-[11px] text-slate-500">{opt.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setPdfExportModal(null)}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (pdfExportModal.mode === 'single' && pdfExportModal.player) {
+                    exportPlayerDossierToPDF([pdfExportModal.player], matches || [], pdfExportFilter);
+                  } else {
+                    exportPlayerDossierToPDF(players.filter(p => p.isActive), matches || [], pdfExportFilter);
+                  }
+                  setPdfExportModal(null);
+                }}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-[#004183] hover:bg-blue-900 text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <FileText size={14} />
+                Generar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
