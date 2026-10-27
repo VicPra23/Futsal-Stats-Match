@@ -2073,7 +2073,12 @@ const formatToSpanishDate = (dateStr: string): string => {
   }
 };
 
-export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Match[], singleFileName?: string) => {
+export const exportPlayerDossierToPDF = (
+  playersToExport: Player[],
+  matches: Match[],
+  matchTypeFilter: 'all' | 'oficial' | 'amistoso' = 'oficial',
+  singleFileName?: string
+) => {
   if (playersToExport.length === 0) return;
 
   const doc = new jsPDF({
@@ -2305,14 +2310,18 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     const statsOfi = computeStats('oficial');
     const statsAmi = computeStats('amistoso');
 
-    const totalSecondsPlayed = statsTot.sec;
-    const totalShots = statsTot.sht;
-    const totalGoals = statsTot.gls;
-    const totalYellows = statsTot.yel;
-    const totalRedCards = statsTot.red;
-    const totalSaves = statsTot.svs;
-    const totalGoalsConceded = statsTot.con;
-    const matchesPlayedCount = statsTot.count;
+    const activeStats = matchTypeFilter === 'oficial' ? statsOfi : matchTypeFilter === 'amistoso' ? statsAmi : statsTot;
+    const filterLabel = matchTypeFilter === 'oficial' ? 'OFICIAL' : matchTypeFilter === 'amistoso' ? 'AMISTOSO' : 'TOT';
+    const filterTitle = matchTypeFilter === 'oficial' ? 'Partidos Oficiales' : matchTypeFilter === 'amistoso' ? 'Partidos Amistosos' : 'Todos los partidos';
+
+    const totalSecondsPlayed = activeStats.sec;
+    const totalShots = activeStats.sht;
+    const totalGoals = activeStats.gls;
+    const totalYellows = activeStats.yel;
+    const totalRedCards = activeStats.red;
+    const totalSaves = activeStats.svs;
+    const totalGoalsConceded = activeStats.con;
+    const matchesPlayedCount = activeStats.count;
 
     const isGK = p.position === 'Portero/a';
     const shootingAccuracy = totalShots > 0 
@@ -2333,7 +2342,7 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     doc.setTextColor(110, 110, 110);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
-    doc.text('PARTIDOS Y TIEMPO (TOT)', 18, kpiY + 4);
+    doc.text(`PARTIDOS Y TIEMPO (${filterLabel})`, 18, kpiY + 4);
     doc.setTextColor(0, 65, 131);
     doc.setFontSize(8.2);
     doc.text(`${matchesPlayedCount} Partidos`, 18, kpiY + 9);
@@ -2475,7 +2484,8 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
         6: { cellWidth: 34 }
       },
       didParseCell: (data) => {
-        if (data.section === 'body' && data.row.index === 2) {
+        const highlightIndex = matchTypeFilter === 'oficial' ? 0 : matchTypeFilter === 'amistoso' ? 1 : 2;
+        if (data.section === 'body' && data.row.index === highlightIndex) {
           data.cell.styles.fontStyle = 'bold';
           data.cell.styles.fillColor = [240, 245, 255];
           data.cell.styles.textColor = [0, 65, 131];
@@ -2490,7 +2500,7 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     doc.setTextColor(0, 65, 131);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
-    doc.text('HISTORIAL DE PARTIDOS PARTICIPADOS', 15, nextY);
+    doc.text(`HISTORIAL DE PARTIDOS PARTICIPADOS (${filterTitle.toUpperCase()})`, 15, nextY);
 
     doc.setDrawColor(0, 65, 131);
     doc.setLineWidth(0.35);
@@ -2513,6 +2523,7 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     const sortedMatches = [...matches].sort((a, b) => b.date.localeCompare(a.date));
 
     sortedMatches.forEach(m => {
+      if (matchTypeFilter !== 'all' && m.matchType !== matchTypeFilter) return;
       const perf = m.stats[p.id];
       if (perf && perf.secondsPlayed > 0) {
         const resLabel = m.result === 'W' ? 'Victoria' : m.result === 'D' ? 'Empate' : 'Derrota';
@@ -2605,9 +2616,10 @@ export const exportPlayerDossierToPDF = (playersToExport: Player[], matches: Mat
     }
   });
 
+  const suffix = matchTypeFilter === 'oficial' ? '_Oficiales' : matchTypeFilter === 'amistoso' ? '_Amistosos' : '_Todos';
   const finalFileName = singleFileName || (playersToExport.length === 1 
-    ? `FS_Talavera_Ficha_${playersToExport[0].alias.replace(/\s+/g, '_') || 'Jugador'}.pdf`
-    : `FS_Talavera_Dossier_Plantilla.pdf`);
+    ? `FS_Talavera_Ficha_${playersToExport[0].alias.replace(/\s+/g, '_') || 'Jugador'}${suffix}.pdf`
+    : `FS_Talavera_Dossier_Plantilla${suffix}.pdf`);
 
   doc.save(finalFileName);
 };
