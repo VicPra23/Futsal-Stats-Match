@@ -2833,6 +2833,11 @@ export default function LiveTracker({
         const totR_out = s1R_out + s2R_out;
         const totR_tot = totR_in + totR_out;
 
+        const s1L_goals = matchState.shotsEvents.filter(s => s.half === 1 && s.team === 'local' && s.type === 'goal').length;
+        const s1R_goals = matchState.shotsEvents.filter(s => s.half === 1 && s.team === 'rival' && s.type === 'goal').length;
+        const s2L_goals = matchState.shotsEvents.filter(s => s.half === 2 && s.team === 'local' && s.type === 'goal').length;
+        const s2R_goals = matchState.shotsEvents.filter(s => s.half === 2 && s.team === 'rival' && s.type === 'goal').length;
+
         const p2 = (n: number) => String(n).padStart(2, '0');
 
         return (
@@ -2849,30 +2854,30 @@ export default function LiveTracker({
                 Encuentro contra <strong>{matchState.rival}</strong> ({matchState.goalsFor} - {matchState.goalsAgainst}). Se generará automáticamente el informe PDF y se archivarán las estadísticas.
               </p>
 
-              {/* Resumen de Tiros por Parte y Totales */}
+              {/* Resumen de Tiros y Goles por Parte y Totales */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-5 text-left">
                 <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-200/80">
-                  <span className="text-[10px] font-black text-[#004183] uppercase tracking-wider">Resumen de Tiros</span>
+                  <span className="text-[10px] font-black text-[#004183] uppercase tracking-wider">Resumen del Encuentro</span>
                   <span className="text-[9px] text-slate-400 font-semibold">(Dentro / Fuera / Total)</span>
                 </div>
                 <div className="grid grid-cols-3 gap-1 text-[10px] font-bold text-slate-500 uppercase pb-1">
-                  <span>Periodo</span>
+                  <span>Periodo (Goles)</span>
                   <span className="text-center text-[#004183]">Local</span>
                   <span className="text-center text-rose-600">Rival</span>
                 </div>
                 <div className="space-y-1.5 font-mono text-[11px]">
                   <div className="grid grid-cols-3 gap-1 items-center bg-white px-2 py-1 rounded-lg border border-slate-100">
-                    <span className="font-sans font-bold text-slate-700 text-[10px]">1ª Parte</span>
+                    <span className="font-sans font-bold text-slate-700 text-[10px]">1ª P. ({s1L_goals}-{s1R_goals})</span>
                     <span className="text-center font-black text-[#004183]">T:{p2(s1L_in)}/{p2(s1L_out)}/{p2(s1L_tot)}</span>
                     <span className="text-center font-black text-rose-600">T:{p2(s1R_in)}/{p2(s1R_out)}/{p2(s1R_tot)}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-1 items-center bg-white px-2 py-1 rounded-lg border border-slate-100">
-                    <span className="font-sans font-bold text-slate-700 text-[10px]">2ª Parte</span>
+                    <span className="font-sans font-bold text-slate-700 text-[10px]">2ª P. ({s2L_goals}-{s2R_goals})</span>
                     <span className="text-center font-black text-[#004183]">T:{p2(s2L_in)}/{p2(s2L_out)}/{p2(s2L_tot)}</span>
                     <span className="text-center font-black text-rose-600">T:{p2(s2R_in)}/{p2(s2R_out)}/{p2(s2R_tot)}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-1 items-center bg-blue-50/80 px-2 py-1.5 rounded-lg border border-blue-200">
-                    <span className="font-sans font-black text-[#004183] text-[10px]">TOTAL</span>
+                    <span className="font-sans font-black text-[#004183] text-[10px]">TOTAL ({matchState.goalsFor}-{matchState.goalsAgainst})</span>
                     <span className="text-center font-black text-[#004183]">T:{p2(totL_in)}/{p2(totL_out)}/{p2(totL_tot)}</span>
                     <span className="text-center font-black text-rose-600">T:{p2(totR_in)}/{p2(totR_out)}/{p2(totR_tot)}</span>
                   </div>
