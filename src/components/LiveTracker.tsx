@@ -295,6 +295,33 @@ export default function LiveTracker({
     ctx.strokeRect(m - 5, h / 2 - 15, 5, 30);
     ctx.strokeRect(w - m, h / 2 - 15, 5, 30);
 
+    // Top Shot Telemetry in 1st Half Heat Map: T:XX/XX/XX (Dentro / Fuera / Total)
+    const firstHalfShotsForTelemetry = matchState.shotsEvents.filter(s => s.half === 1);
+    const fhLocalIn = firstHalfShotsForTelemetry.filter(s => s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
+    const fhLocalOut = firstHalfShotsForTelemetry.filter(s => s.team === 'local' && s.type === 'out').length;
+    const fhLocalTot = fhLocalIn + fhLocalOut;
+
+    const fhRivalIn = firstHalfShotsForTelemetry.filter(s => s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
+    const fhRivalOut = firstHalfShotsForTelemetry.filter(s => s.team === 'rival' && s.type === 'out').length;
+    const fhRivalTot = fhRivalIn + fhRivalOut;
+
+    const padFh = (n: number) => String(n).padStart(2, '0');
+    ctx.font = 'bold 8.5px monospace';
+    ctx.textBaseline = 'middle';
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = matchState.talaveraKit === '1ª Equipación' ? '#38bdf8' : '#ec4899';
+    ctx.fillText(`LOCAL T:${padFh(fhLocalIn)}/${padFh(fhLocalOut)}/${padFh(fhLocalTot)}`, m + 2, 7.5);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = matchState.rivalColor || '#ff0505';
+    ctx.fillText(`RIVAL T:${padFh(fhRivalIn)}/${padFh(fhRivalOut)}/${padFh(fhRivalTot)}`, w - m - 2, 7.5);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.font = 'bold 7px sans-serif';
+    ctx.fillText(`(D / F / Tot)`, w / 2, 7.5);
+
     // Draw attack direction indicator on bottom of court
     ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
@@ -475,6 +502,39 @@ export default function LiveTracker({
     ctx.lineWidth = 1.5;
     ctx.strokeRect(m - 7, h / 2 - 25, 7, 50);
     ctx.strokeRect(w - m, h / 2 - 25, 7, 50);
+
+    // Top Shot Telemetry in Main Heat Map: T:XX/XX/XX (Dentro / Fuera / Total) for the active half
+    const currentHalfShotsForTelemetry = matchState.shotsEvents.filter(s => s.half === matchState.half);
+    const localIn = currentHalfShotsForTelemetry.filter(s => s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
+    const localOut = currentHalfShotsForTelemetry.filter(s => s.team === 'local' && s.type === 'out').length;
+    const localTot = localIn + localOut;
+
+    const rivalIn = currentHalfShotsForTelemetry.filter(s => s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
+    const rivalOut = currentHalfShotsForTelemetry.filter(s => s.team === 'rival' && s.type === 'out').length;
+    const rivalTot = rivalIn + rivalOut;
+
+    const padShot = (n: number) => String(n).padStart(2, '0');
+    const localColor = matchState.talaveraKit === '1ª Equipación' ? '#38bdf8' : '#ec4899';
+    const rivalColor = matchState.rivalColor || '#ef4444';
+
+    const localShotText = `LOCAL T:${padShot(localIn)}/${padShot(localOut)}/${padShot(localTot)}`;
+    const rivalShotText = `${(matchState.rival || 'RIVAL').toUpperCase()} T:${padShot(rivalIn)}/${padShot(rivalOut)}/${padShot(rivalTot)}`;
+
+    ctx.font = 'bold 11px monospace';
+    ctx.textBaseline = 'middle';
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = localColor;
+    ctx.fillText(localShotText, m + 2, 10);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = rivalColor;
+    ctx.fillText(rivalShotText, w - m - 2, 10);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.fillText(`(Dentro / Fuera / Total)`, w / 2, 10);
 
     // Draw attack direction indicator on bottom of court (subtle elegant overlay overlaying nothing)
     ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
@@ -2035,25 +2095,62 @@ export default function LiveTracker({
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         
         {/* INTERACTIVE SHOT COURT MAP BOARD COLUMN LEFT */}
-        <div className="xl:col-span-8 bg-white border border-slate-200 rounded-3xl p-4 shadow-sm relative space-y-4">
-          <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl border border-slate-100">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-extrabold text-[#004183] uppercase tracking-wider flex items-center gap-1">
-                <Play className="fill-[#004183] text-[#004183]" size={12} />
-                <span>Mapa de Calor</span>
-              </span>
-            </div>
-            <div>
-              {matchState.shotsEvents.length > 0 && (
-                <button
-                  onClick={handleUndoLastShotVal}
-                  className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold px-2.5 py-1 rounded-lg text-[9px] transition uppercase flex items-center gap-1 select-none cursor-pointer"
-                >
-                  <Undo2 size={10} /> Deshacer último
-                </button>
-              )}
-            </div>
-          </div>
+        {(() => {
+          const currentHalfShots = matchState.shotsEvents.filter(s => s.half === matchState.half);
+          const cLocalIn = currentHalfShots.filter(s => s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
+          const cLocalOut = currentHalfShots.filter(s => s.team === 'local' && s.type === 'out').length;
+          const cLocalTot = cLocalIn + cLocalOut;
+
+          const cRivalIn = currentHalfShots.filter(s => s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
+          const cRivalOut = currentHalfShots.filter(s => s.team === 'rival' && s.type === 'out').length;
+          const cRivalTot = cRivalIn + cRivalOut;
+
+          const padVal = (n: number) => String(n).padStart(2, '0');
+
+          return (
+            <div className="xl:col-span-8 bg-white border border-slate-200 rounded-3xl p-4 shadow-sm relative space-y-4">
+              <div className="flex flex-wrap justify-between items-center bg-slate-50 p-2.5 rounded-2xl border border-slate-100 gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-extrabold text-[#004183] uppercase tracking-wider flex items-center gap-1">
+                    <Play className="fill-[#004183] text-[#004183]" size={12} />
+                    <span>Mapa de Calor</span>
+                  </span>
+                </div>
+
+                {/* Scoreboard Telemetry Pill T:XX/XX/XX (Parte Actual) */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-xl shadow-2xs font-mono">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: matchState.talaveraKit === '1ª Equipación' ? '#0284c7' : '#db2777' }}></span>
+                    <span className="text-[10px] font-bold text-slate-500">LCL:</span>
+                    <span className="text-xs font-black text-[#004183] tracking-wide">
+                      T:{padVal(cLocalIn)}/{padVal(cLocalOut)}/{padVal(cLocalTot)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-xl shadow-2xs font-mono">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: matchState.rivalColor || '#ef4444' }}></span>
+                    <span className="text-[10px] font-bold text-slate-500">RVL:</span>
+                    <span className="text-xs font-black text-rose-600 tracking-wide">
+                      T:{padVal(cRivalIn)}/{padVal(cRivalOut)}/{padVal(cRivalTot)}
+                    </span>
+                  </div>
+
+                  <span className="text-[9px] text-slate-400 font-semibold hidden md:inline select-none">
+                    (Dentro / Fuera / Total)
+                  </span>
+                </div>
+
+                <div>
+                  {matchState.shotsEvents.length > 0 && (
+                    <button
+                      onClick={handleUndoLastShotVal}
+                      className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold px-2.5 py-1 rounded-lg text-[9px] transition uppercase flex items-center gap-1 select-none cursor-pointer"
+                    >
+                      <Undo2 size={10} /> Deshacer último
+                    </button>
+                  )}
+                </div>
+              </div>
 
           <div className="relative flex justify-center items-center w-full">
             {/* Interactive Sports Court Canvas */}
@@ -2315,6 +2412,8 @@ export default function LiveTracker({
             )}
           </div>
         </div>
+          );
+        })()}
 
         {/* ON-COURT METRIC TILES COMPONENT RIGHT SIDE COLUMN XL */}
         <div className="xl:col-span-4 space-y-4">
@@ -2712,39 +2811,94 @@ export default function LiveTracker({
       )}
 
       {/* MODAL PARA CONFIRMAR FINALIZACIÓN DE PARTIDO */}
-      {showFinishModal && (
-        <div className="fixed inset-0 min-h-screen bg-slate-950/80 backdrop-blur-sm z-[9999] p-4 flex items-center justify-center animate-fade-in">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-center">
-            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-100">
-              <span className="text-3xl font-black">🏁</span>
-            </div>
-            
-            <h3 className="text-xl font-black text-slate-900 font-display">
-              ¿Finalizar Partido?
-            </h3>
-            <p className="text-slate-500 text-sm mt-2 mb-6">
-              ¿Confirmas que deseas dar por terminado el encuentro contra <strong>{matchState.rival}</strong> definitivamente? Esto generará y descargará automáticamente el informe táctico PDF de la jornada y archivará las estadísticas.
-            </p>
+      {showFinishModal && (() => {
+        const s1L_in = matchState.shotsEvents.filter(s => s.half === 1 && s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
+        const s1L_out = matchState.shotsEvents.filter(s => s.half === 1 && s.team === 'local' && s.type === 'out').length;
+        const s1L_tot = s1L_in + s1L_out;
+        const s1R_in = matchState.shotsEvents.filter(s => s.half === 1 && s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
+        const s1R_out = matchState.shotsEvents.filter(s => s.half === 1 && s.team === 'rival' && s.type === 'out').length;
+        const s1R_tot = s1R_in + s1R_out;
 
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                onClick={() => setShowFinishModal(false)}
-                type="button"
-                className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer"
-              >
-                Volver al Juego
-              </button>
-              <button
-                onClick={confirmFinishMatchArchive}
-                type="button"
-                className="py-3 px-4 bg-[#004183] hover:bg-blue-900 text-white font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer shadow-md shadow-blue-900/10"
-              >
-                Sí, Finalizar
-              </button>
+        const s2L_in = matchState.shotsEvents.filter(s => s.half === 2 && s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
+        const s2L_out = matchState.shotsEvents.filter(s => s.half === 2 && s.team === 'local' && s.type === 'out').length;
+        const s2L_tot = s2L_in + s2L_out;
+        const s2R_in = matchState.shotsEvents.filter(s => s.half === 2 && s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
+        const s2R_out = matchState.shotsEvents.filter(s => s.half === 2 && s.team === 'rival' && s.type === 'out').length;
+        const s2R_tot = s2R_in + s2R_out;
+
+        const totL_in = s1L_in + s2L_in;
+        const totL_out = s1L_out + s2L_out;
+        const totL_tot = totL_in + totL_out;
+        const totR_in = s1R_in + s2R_in;
+        const totR_out = s1R_out + s2R_out;
+        const totR_tot = totR_in + totR_out;
+
+        const p2 = (n: number) => String(n).padStart(2, '0');
+
+        return (
+          <div className="fixed inset-0 min-h-screen bg-slate-950/80 backdrop-blur-sm z-[9999] p-4 flex items-center justify-center animate-fade-in">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 text-center">
+              <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3 border border-emerald-100">
+                <span className="text-2xl font-black">🏁</span>
+              </div>
+              
+              <h3 className="text-xl font-black text-slate-900 font-display">
+                ¿Finalizar Partido?
+              </h3>
+              <p className="text-slate-500 text-xs mt-1.5 mb-4">
+                Encuentro contra <strong>{matchState.rival}</strong> ({matchState.goalsFor} - {matchState.goalsAgainst}). Se generará automáticamente el informe PDF y se archivarán las estadísticas.
+              </p>
+
+              {/* Resumen de Tiros por Parte y Totales */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-5 text-left">
+                <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-200/80">
+                  <span className="text-[10px] font-black text-[#004183] uppercase tracking-wider">Resumen de Tiros</span>
+                  <span className="text-[9px] text-slate-400 font-semibold">(Dentro / Fuera / Total)</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1 text-[10px] font-bold text-slate-500 uppercase pb-1">
+                  <span>Periodo</span>
+                  <span className="text-center text-[#004183]">Local</span>
+                  <span className="text-center text-rose-600">Rival</span>
+                </div>
+                <div className="space-y-1.5 font-mono text-[11px]">
+                  <div className="grid grid-cols-3 gap-1 items-center bg-white px-2 py-1 rounded-lg border border-slate-100">
+                    <span className="font-sans font-bold text-slate-700 text-[10px]">1ª Parte</span>
+                    <span className="text-center font-black text-[#004183]">T:{p2(s1L_in)}/{p2(s1L_out)}/{p2(s1L_tot)}</span>
+                    <span className="text-center font-black text-rose-600">T:{p2(s1R_in)}/{p2(s1R_out)}/{p2(s1R_tot)}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 items-center bg-white px-2 py-1 rounded-lg border border-slate-100">
+                    <span className="font-sans font-bold text-slate-700 text-[10px]">2ª Parte</span>
+                    <span className="text-center font-black text-[#004183]">T:{p2(s2L_in)}/{p2(s2L_out)}/{p2(s2L_tot)}</span>
+                    <span className="text-center font-black text-rose-600">T:{p2(s2R_in)}/{p2(s2R_out)}/{p2(s2R_tot)}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 items-center bg-blue-50/80 px-2 py-1.5 rounded-lg border border-blue-200">
+                    <span className="font-sans font-black text-[#004183] text-[10px]">TOTAL</span>
+                    <span className="text-center font-black text-[#004183]">T:{p2(totL_in)}/{p2(totL_out)}/{p2(totL_tot)}</span>
+                    <span className="text-center font-black text-rose-600">T:{p2(totR_in)}/{p2(totR_out)}/{p2(totR_tot)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  onClick={() => setShowFinishModal(false)}
+                  type="button"
+                  className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer"
+                >
+                  Volver al Juego
+                </button>
+                <button
+                  onClick={confirmFinishMatchArchive}
+                  type="button"
+                  className="py-3 px-4 bg-[#004183] hover:bg-blue-900 text-white font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer shadow-md shadow-blue-900/10"
+                >
+                  Sí, Finalizar
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL 3: FIRST HALF SUMMARY & SECOND HALF LINEUP SELECTION */}
       {showFirstHalfSummaryModal && (() => {
@@ -2820,9 +2974,19 @@ export default function LiveTracker({
                 {/* Column Left: Visual Pitch Map & Team Summary Stats */}
                 <div className="space-y-4">
                   <div className="bg-slate-900 rounded-2xl p-3 border border-slate-800">
-                    <p className="text-[10px] font-black uppercase text-[#FFD700] tracking-wider mb-2 text-center">
+                    <p className="text-[10px] font-black uppercase text-[#FFD700] tracking-wider mb-1 text-center">
                       Mapa de Calor de Tiros - 1ª Parte
                     </p>
+                    <div className="flex justify-center items-center gap-2.5 text-xs font-mono mb-2 text-center flex-wrap">
+                      <span className="text-sky-300 font-bold">
+                        LOCAL T:{String(firstHalfTirosDentro).padStart(2, '0')}/{String(firstHalfTirosFuera).padStart(2, '0')}/{String(firstHalfTotalTiros).padStart(2, '0')}
+                      </span>
+                      <span className="text-slate-500">•</span>
+                      <span className="text-rose-400 font-bold">
+                        RIVAL T:{String(firstHalfRivalDentro).padStart(2, '0')}/{String(firstHalfRivalFuera).padStart(2, '0')}/{String(firstHalfRivalTotal).padStart(2, '0')}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-sans hidden sm:inline">(Dentro / Fuera / Total)</span>
+                    </div>
                     <div className="flex justify-center">
                       <canvas
                         ref={firstHalfCanvasRef}

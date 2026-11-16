@@ -527,9 +527,8 @@ export default function HistoryList({
                   <div className="border-t border-slate-100 p-4 md:p-6 bg-slate-50/50 rounded-b-2xl animate-fade-in text-slate-800">
                     {/* Team Match Statistics comparison */}
                     {(() => {
-                      const localShots = match.shotsEvents
-                        ? match.shotsEvents.filter((s) => s.team === "local")
-                        : [];
+                      const shots = match.shotsEvents || [];
+                      const localShots = shots.filter((s) => s.team === "local");
                       const onTargetShotsCount = localShots.filter(
                         (s) => s.type === "on_target" || s.type === "goal",
                       ).length;
@@ -540,40 +539,102 @@ export default function HistoryList({
                             )
                           : 0;
 
+                      const s1L_in = shots.filter(s => s.half === 1 && s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
+                      const s1L_out = shots.filter(s => s.half === 1 && s.team === 'local' && s.type === 'out').length;
+                      const s1L_tot = s1L_in + s1L_out;
+                      const s1R_in = shots.filter(s => s.half === 1 && s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
+                      const s1R_out = shots.filter(s => s.half === 1 && s.team === 'rival' && s.type === 'out').length;
+                      const s1R_tot = s1R_in + s1R_out;
+
+                      const s2L_in = shots.filter(s => s.half === 2 && s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
+                      const s2L_out = shots.filter(s => s.half === 2 && s.team === 'local' && s.type === 'out').length;
+                      const s2L_tot = s2L_in + s2L_out;
+                      const s2R_in = shots.filter(s => s.half === 2 && s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
+                      const s2R_out = shots.filter(s => s.half === 2 && s.team === 'rival' && s.type === 'out').length;
+                      const s2R_tot = s2R_in + s2R_out;
+
+                      const totL_in = s1L_in + s2L_in;
+                      const totL_out = s1L_out + s2L_out;
+                      const totL_tot = totL_in + totL_out;
+                      const totR_in = s1R_in + s2R_in;
+                      const totR_out = s1R_out + s2R_out;
+                      const totR_tot = totR_in + totR_out;
+
+                      const p2 = (n: number) => String(n).padStart(2, '0');
+
                       return (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                          <div className="bg-white p-3.5 rounded-xl border border-slate-200/60 text-center">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
-                              Goles
-                            </span>
-                            <span className="text-2xl font-black text-blue-900 block mt-0.5 font-sans">
-                              {match.goalsFor}
-                            </span>
+                        <div className="space-y-4 mb-6">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="bg-white p-3.5 rounded-xl border border-slate-200/60 text-center">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                                Goles
+                              </span>
+                              <span className="text-2xl font-black text-blue-900 block mt-0.5 font-sans">
+                                {match.goalsFor}
+                              </span>
+                            </div>
+                            <div className="bg-white p-3.5 rounded-xl border border-slate-200/60 text-center">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                                Goles Encajados
+                              </span>
+                              <span className="text-2xl font-black text-rose-800 block mt-0.5 font-sans">
+                                {match.goalsAgainst}
+                              </span>
+                            </div>
+                            <div className="bg-white p-3.5 rounded-xl border border-slate-200/60 text-center">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                                Tiros Totales
+                              </span>
+                              <span className="text-2xl font-black text-slate-800 block mt-0.5 font-sans">
+                                {match.teamShots}
+                              </span>
+                            </div>
+                            <div className="bg-white p-3.5 rounded-xl border border-slate-200/60 text-center">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                                % Acierto a Puerta
+                              </span>
+                              <span className="text-2xl font-black text-emerald-600 block mt-0.5 font-sans">
+                                {accuracyVal}%
+                              </span>
+                            </div>
                           </div>
-                          <div className="bg-white p-3.5 rounded-xl border border-slate-200/60 text-center">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
-                              Goles Encajados
-                            </span>
-                            <span className="text-2xl font-black text-rose-800 block mt-0.5 font-sans">
-                              {match.goalsAgainst}
-                            </span>
-                          </div>
-                          <div className="bg-white p-3.5 rounded-xl border border-slate-200/60 text-center">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
-                              Tiros Totales
-                            </span>
-                            <span className="text-2xl font-black text-slate-800 block mt-0.5 font-sans">
-                              {match.teamShots}
-                            </span>
-                          </div>
-                          <div className="bg-white p-3.5 rounded-xl border border-slate-200/60 text-center">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
-                              % Acierto a Puerta
-                            </span>
-                            <span className="text-2xl font-black text-emerald-600 block mt-0.5 font-sans">
-                              {accuracyVal}%
-                            </span>
-                          </div>
+
+                          {shots.length > 0 && (
+                            <div className="bg-white border border-slate-200/80 rounded-xl p-3">
+                              <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-100">
+                                <span className="text-[10px] font-black text-[#004183] uppercase tracking-wider">
+                                  Desglose de Tiros por Parte y Totales
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-semibold">(Dentro / Fuera / Total)</span>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 font-mono text-[11px]">
+                                <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 flex justify-between items-center">
+                                  <span className="font-sans font-bold text-slate-600 text-[10px]">1ª Parte</span>
+                                  <div className="flex gap-2.5">
+                                    <span className="font-black text-[#004183]" title="Local">L: T:{p2(s1L_in)}/{p2(s1L_out)}/{p2(s1L_tot)}</span>
+                                    <span className="text-slate-300">|</span>
+                                    <span className="font-black text-rose-600" title="Rival">R: T:{p2(s1R_in)}/{p2(s1R_out)}/{p2(s1R_tot)}</span>
+                                  </div>
+                                </div>
+                                <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 flex justify-between items-center">
+                                  <span className="font-sans font-bold text-slate-600 text-[10px]">2ª Parte</span>
+                                  <div className="flex gap-2.5">
+                                    <span className="font-black text-[#004183]" title="Local">L: T:{p2(s2L_in)}/{p2(s2L_out)}/{p2(s2L_tot)}</span>
+                                    <span className="text-slate-300">|</span>
+                                    <span className="font-black text-rose-600" title="Rival">R: T:{p2(s2R_in)}/{p2(s2R_out)}/{p2(s2R_tot)}</span>
+                                  </div>
+                                </div>
+                                <div className="bg-blue-50/70 px-3 py-2 rounded-lg border border-blue-200/80 flex justify-between items-center">
+                                  <span className="font-sans font-black text-[#004183] text-[10px]">TOTAL</span>
+                                  <div className="flex gap-2.5">
+                                    <span className="font-black text-[#004183]" title="Local">L: T:{p2(totL_in)}/{p2(totL_out)}/{p2(totL_tot)}</span>
+                                    <span className="text-blue-200">|</span>
+                                    <span className="font-black text-rose-600" title="Rival">R: T:{p2(totR_in)}/{p2(totR_out)}/{p2(totR_tot)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
