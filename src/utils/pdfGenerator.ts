@@ -153,6 +153,36 @@ const drawFutsalPitchPDF = (
   // Filter shots for this half
   const halfShots = shots.filter(s => s.half === half);
 
+  // Top Shot Telemetry on Pitch Header: T:XX/XX/XX (Dentro / Fuera / Total)
+  const padPitch = (n: number) => String(n).padStart(2, '0');
+  const localIn = halfShots.filter(s => s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
+  const localOut = halfShots.filter(s => s.team === 'local' && s.type === 'out').length;
+  const localTot = localIn + localOut;
+
+  const rivalIn = halfShots.filter(s => s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
+  const rivalOut = halfShots.filter(s => s.team === 'rival' && s.type === 'out').length;
+  const rivalTot = rivalIn + rivalOut;
+
+  // Background subtle strip at top of court
+  doc.setFillColor(238, 244, 252);
+  doc.rect(x + 0.3, y + 0.3, w - 0.6, 4.0, 'F');
+  doc.setDrawColor(200, 220, 245);
+  doc.setLineWidth(0.2);
+  doc.line(x, y + 4.3, x + w, y + 4.3);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5.8);
+  doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.text(`Eq. T:${padPitch(localIn)}/${padPitch(localOut)}/${padPitch(localTot)}`, x + 2.5, y + 3.1);
+
+  doc.setTextColor(rivalColor[0], rivalColor[1], rivalColor[2]);
+  doc.text(`Riv. T:${padPitch(rivalIn)}/${padPitch(rivalOut)}/${padPitch(rivalTot)}`, x + w - 2.5, y + 3.1, { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(4.4);
+  doc.setTextColor(110, 120, 135);
+  doc.text('(dentro / fuera / total)', x + w / 2, y + 3.1, { align: 'center' });
+
   // Draw shot markers
   halfShots.forEach(shot => {
     // Map percentages (0-100) to actual canvas bounding dimensions
@@ -644,7 +674,8 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
   doc.text(`Marcador parcial: Equipo ${goals1stLocal} - ${goals1stRival} Rival`, col1X + 4, colY + 11);
   
   doc.setFontSize(7.2);
-  doc.text(`Tiros 1ª P.: Eq. ${shots1stLocal} (${shots1stLocalIn} dentro / ${shots1stLocalOut} fuera) • Riv. ${shots1stRival} (${shots1stRivalIn} d. / ${shots1stRivalOut} f.)`, col1X + 4, colY + 15);
+  const padRep = (n: number) => String(n).padStart(2, '0');
+  doc.text(`Tiros 1ª P.: Eq. T:${padRep(shots1stLocalIn)}/${padRep(shots1stLocalOut)}/${padRep(shots1stLocal)} (${shots1stLocalIn} dentro / ${shots1stLocalOut} fuera) • Riv. T:${padRep(shots1stRivalIn)}/${padRep(shots1stRivalOut)}/${padRep(shots1stRival)} (${shots1stRivalIn} d. / ${shots1stRivalOut} f.)`, col1X + 4, colY + 15);
   
   const bonusLocal1st = fouls1stLocal >= 5 ? 'SÍ' : 'No';
   const bonusRival1st = fouls1stRival >= 5 ? 'SÍ' : 'No';
@@ -683,7 +714,7 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
   doc.text(`Marcador parcial: Equipo ${goals2ndLocal} - ${goals2ndRival} Rival`, col2X + 4, colY + 11);
   
   doc.setFontSize(7.2);
-  doc.text(`Tiros 2ª P.: Eq. ${shots2ndLocal} (${shots2ndLocalIn} dentro / ${shots2ndLocalOut} fuera) • Riv. ${shots2ndRival} (${shots2ndRivalIn} d. / ${shots2ndRivalOut} f.)`, col2X + 4, colY + 15);
+  doc.text(`Tiros 2ª P.: Eq. T:${padRep(shots2ndLocalIn)}/${padRep(shots2ndLocalOut)}/${padRep(shots2ndLocal)} (${shots2ndLocalIn} dentro / ${shots2ndLocalOut} fuera) • Riv. T:${padRep(shots2ndRivalIn)}/${padRep(shots2ndRivalOut)}/${padRep(shots2ndRival)} (${shots2ndRivalIn} d. / ${shots2ndRivalOut} f.)`, col2X + 4, colY + 15);
 
   const bonusLocal2nd = fouls2ndLocal >= 5 ? 'SÍ' : 'No';
   const bonusRival2nd = fouls2ndRival >= 5 ? 'SÍ' : 'No';
@@ -700,9 +731,9 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
   const bottomY = colY + colHeight + 8; // 152. Highly spacious.
 
   const cstX = 14;
-  const cstW = 60;
-  const tlgX = 80;
-  const tlgW = 116;
+  const cstW = 66;
+  const tlgX = 84;
+  const tlgW = 112;
 
   // Divider lines & headers
   doc.setTextColor(0, 65, 131);
@@ -733,11 +764,23 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
   const collectiveHeaders = [['Indicador', 'LCL', 'RVL']];
   const collectiveRows = [
     ['Goles Marcados', localGoalsTotal.toString(), rivalGoalsTotal.toString()],
-    ['Tiros 1ª Parte', shots1stLocal.toString(), shots1stRival.toString()],
-    ['Tiros 2ª Parte', shots2ndLocal.toString(), shots2ndRival.toString()],
-    ['Tiros Totales', localShotsTotal.toString(), rivalShotsTotal.toString()],
-    ['Tiros a Puerta', localShotsOnTarget.toString(), rivalShotsOnTarget.toString()],
-    ['Tiros Fuera', localShotsOut.toString(), rivalShotsOut.toString()],
+    [
+      'Tiros 1ª Parte\n(D / F / Tot)',
+      `T:${padRep(shots1stLocalIn)}/${padRep(shots1stLocalOut)}/${padRep(shots1stLocal)}\n(${shots1stLocalIn} d. / ${shots1stLocalOut} f.)`,
+      `T:${padRep(shots1stRivalIn)}/${padRep(shots1stRivalOut)}/${padRep(shots1stRival)}\n(${shots1stRivalIn} d. / ${shots1stRivalOut} f.)`
+    ],
+    [
+      'Tiros 2ª Parte\n(D / F / Tot)',
+      `T:${padRep(shots2ndLocalIn)}/${padRep(shots2ndLocalOut)}/${padRep(shots2ndLocal)}\n(${shots2ndLocalIn} d. / ${shots2ndLocalOut} f.)`,
+      `T:${padRep(shots2ndRivalIn)}/${padRep(shots2ndRivalOut)}/${padRep(shots2ndRival)}\n(${shots2ndRivalIn} d. / ${shots2ndRivalOut} f.)`
+    ],
+    [
+      'Tiros Totales\n(D / F / Tot)',
+      `T:${padRep(localShotsOnTarget)}/${padRep(localShotsOut)}/${padRep(localShotsTotal)}\n(${localShotsOnTarget} d. / ${localShotsOut} f.)`,
+      `T:${padRep(rivalShotsOnTarget)}/${padRep(rivalShotsOut)}/${padRep(rivalShotsTotal)}\n(${rivalShotsOnTarget} d. / ${rivalShotsOut} f.)`
+    ],
+    ['Tiros a Puerta (Tot)', localShotsOnTarget.toString(), rivalShotsOnTarget.toString()],
+    ['Tiros Fuera (Tot)', localShotsOut.toString(), rivalShotsOut.toString()],
     ['Faltas Acum. 1ª P.', (match.localFouls1stHalf || 0).toString(), (match.rivalFouls1stHalf || 0).toString()],
     ['Faltas Acum. 2ª P.', (match.localFouls2ndHalf || 0).toString(), (match.rivalFouls2ndHalf || 0).toString()],
     ['Resultado Final', `${mappedResultSymbol} (${match.goalsFor}-${match.goalsAgainst})`, '—']
@@ -757,14 +800,27 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
       halign: 'center'
     },
     styles: {
-      fontSize: 7.5,
-      cellPadding: 1.5,
+      fontSize: 6.8,
+      cellPadding: 1.2,
       halign: 'center'
     },
     columnStyles: {
-      0: { halign: 'left', fontStyle: 'bold', cellWidth: 32 },
-      1: { cellWidth: 14 },
-      2: { cellWidth: 14 }
+      0: { halign: 'left', fontStyle: 'bold', cellWidth: 26 },
+      1: { cellWidth: 20, halign: 'center', fontStyle: 'bold' },
+      2: { cellWidth: 20, halign: 'center', fontStyle: 'bold' }
+    },
+    didParseCell: (data: any) => {
+      // Highlight rows 1, 2, 3 (Tiros 1ª P, Tiros 2ª P, Tiros Totales)
+      if (data.section === 'body') {
+        if (data.row.index === 1 || data.row.index === 2) {
+          data.cell.styles.fillColor = [240, 246, 255];
+          data.cell.styles.textColor = [0, 65, 131];
+        } else if (data.row.index === 3) {
+          data.cell.styles.fillColor = [225, 238, 255];
+          data.cell.styles.textColor = [0, 45, 110];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
     },
     margin: { left: cstX },
     tableWidth: cstW
