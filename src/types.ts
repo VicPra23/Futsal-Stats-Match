@@ -31,6 +31,8 @@ export interface RotationEvent {
   type: RotationEventType;
   inPlayerId?: string;
   outPlayerId?: string;
+  inPlayerIds?: string[];
+  outPlayerIds?: string[];
   onCourtIds: string[]; // snapshot exacto de IDs en pista tras el evento
   timestamp: number; // Date.now() para desempate en el mismo segundo
 }
