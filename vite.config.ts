@@ -12,11 +12,14 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'prompt',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+        includeAssets: ['logo.png'],
+        workbox: {
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024
+        },
         manifest: {
           name: 'FS Talavera Stats Manager',
           short_name: 'FST Stats',
-          description: 'Gestor de estadísticas y directos para el FS Talavera Femenino',
+          description: 'Gestor de estadísticas y directos multi-equipo para el FS Talavera',
           theme_color: '#004183',
           background_color: '#ffffff',
           display: 'standalone',
@@ -35,6 +38,17 @@ export default defineConfig(() => {
         }
       })
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            xlsx: ['xlsx'],
+            pdf: ['jspdf', 'jspdf-autotable'],
+            charts: ['recharts']
+          }
+        }
+      }
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
