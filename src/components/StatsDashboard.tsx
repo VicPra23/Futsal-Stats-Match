@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Match, Player } from '../types';
 import { exportTeamReportToPDF, exportPlayerComparisonsToPDF, MINUTE_INTERVALS, getMatchMinuteFromShot, getMinuteIntervalFromMinute } from '../utils/pdfGenerator';
+import { computeSeasonQuintetStats, formatSecondsMMSS, getDisambiguatedPlayerLabel } from '../utils/lineupAnalytics';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell, CartesianGrid 
 } from 'recharts';
@@ -196,6 +197,13 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
   const totalGoalsAgainst = filteredMatches.reduce((acc, m) => acc + m.goalsAgainst, 0);
   const totalTeamShots = filteredMatches.reduce((acc, m) => acc + m.teamShots, 0);
   const totalTeamYellows = filteredMatches.reduce((acc, m) => acc + m.teamYellows, 0);
+
+  const topQuintets = computeSeasonQuintetStats(filteredMatches, players, 5);
+  const matchesWithRotationsCount = filteredMatches.filter(
+    m => m.rotationEvents && m.rotationEvents.length > 0
+  ).length;
+  const playerMap = new Map(players.map(p => [p.id, p]));
+  const maxQuintetSeconds = topQuintets.length > 0 ? topQuintets[0].secondsTogether : 1;
 
   // Compute individual aggregated historical performance for ALL players based on filtered matches
   const playerStatsList = players.map(player => {
@@ -1506,6 +1514,113 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
                   )}
                 </div>
 
+              </div>
+
+              {/* TOP 5 QUINTETOS CON MÁS MINUTOS */}
+              <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm" id="widget-top-quintets">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-100">
+                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 font-display">
+                    <Users size={18} className="text-[#004183]" />
+                    <span>Top 5 Quintetos con Más Minutos</span>
+                  </h3>
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full self-start sm:self-auto">
+                    <Clock size={12} className="text-[#004183]" />
+                    Basado en {matchesWithRotationsCount} {matchesWithRotationsCount === 1 ? 'partido' : 'partidos'} con rotaciones
+                  </span>
+                </div>
+
+                {topQuintets.length === 0 ? (
+                  <p className="text-slate-400 text-sm py-4 text-center">
+                    Los quintetos aparecerán automáticamente a medida que se registren partidos con el control horario de cambios.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {topQuintets.map((q, idx) => {
+                      const pct = Math.max(8, Math.round((q.secondsTogether / maxQuintetSeconds) * 100));
+                      const fmtT = (i: number, o: number, t: number) =>
+                        `T:${String(i).padStart(2, '0')}/${String(o).padStart(2, '0')}/${String(t).padStart(2, '0')}`;
+
+                      return (
+                        <div
+                          key={q.key}
+                          className="p-3.5 bg-slate-50/70 border border-slate-200/70 rounded-2xl space-y-2.5 hover:bg-slate-50 transition"
+                        >
+                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+                            <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                              <span
+                                className={`inline-flex items-center justify-center px-2 py-0.5 rounded-lg font-mono font-black text-xs border shrink-0 ${
+                                  idx === 0
+                                    ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                    : 'bg-blue-50 text-[#004183] border-blue-200'
+                                }`}
+                              >
+                                #{idx + 1}
+                              </span>
+
+                              <div className="flex flex-wrap gap-1.5">
+                                {q.playerIds.map((pid) => {
+                                  const pl = playerMap.get(pid);
+                                  const isGK =
+                                    pl?.position === 'Portero/a' ||
+                                    Boolean(pl?.position?.toLowerCase().includes('porter'));
+                                  const label = pl
+                                    ? getDisambiguatedPlayerLabel(pl, players, true)
+                                    : `#${pid}`;
+                                  return (
+                                    <span
+                                      key={pid}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-xs font-bold ${
+                                        isGK
+                                          ? 'bg-amber-50 text-amber-900 border-amber-200'
+                                          : 'bg-white text-[#004183] border-slate-200'
+                                      }`}
+                                    >
+                                      {isGK && <span>🧤</span>}
+                                      <span>{label}</span>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 text-xs shrink-0">
+                              <span className="inline-flex items-center gap-1 bg-blue-50 text-[#004183] border border-blue-100 px-2 py-0.5 rounded-lg font-mono font-black">
+                                ⏱️ {formatSecondsMMSS(q.secondsTogether)}
+                              </span>
+                              <span className="text-slate-500 font-bold bg-white border border-slate-200 px-2 py-0.5 rounded-lg">
+                                {q.matchesCount} {q.matchesCount === 1 ? 'part.' : 'parts.'}
+                              </span>
+                              <span className="font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-lg font-mono">
+                                {q.goalsFor} - {q.goalsAgainst}
+                              </span>
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-full font-mono font-black text-xs ${
+                                  q.plusMinus > 0
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : q.plusMinus < 0
+                                      ? 'bg-rose-100 text-rose-800'
+                                      : 'bg-slate-200 text-slate-600'
+                                }`}
+                              >
+                                {q.plusMinus > 0 ? `+${q.plusMinus}` : q.plusMinus}
+                              </span>
+                              <span className="text-[11px] font-mono font-bold text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-lg">
+                                L: {fmtT(q.localShotsIn, q.localShotsOut, q.localShotsTotal)} · R: {fmtT(q.rivalShotsIn, q.rivalShotsOut, q.rivalShotsTotal)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="w-full h-2 bg-slate-200/70 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${idx === 0 ? 'bg-amber-400' : 'bg-[#004183]'}`}
+                              style={{ width: `${pct}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
             </div>

@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, RotateCcw, Save, Flame, User, AlertTriangle, Shield, Check, Plus, Minus, Users, Undo2, Trash2 } from 'lucide-react';
 import { Player, LiveMatchState, LivePlayerState, Match, PositionType, ShotEvent, RotationEvent, GOAL_TYPES, GoalType } from '../types';
 import { exportMatchToPDF } from '../utils/pdfGenerator';
-import { getDisambiguatedPlayerLabel } from '../utils/lineupAnalytics';
+import { consolidateRotationEvents, getDisambiguatedPlayerLabel } from '../utils/lineupAnalytics';
 
 interface LiveTrackerProps {
   players: Player[];
@@ -191,12 +191,16 @@ export default function LiveTracker({
     }
   }, [matchState]);
 
-  // Set active goalkeeper initially based on "Position 1" starter
+  const isNaturalGoalkeeper = (p: Player) =>
+    p.position === 'Portero/a' || Boolean(p.position?.toLowerCase().includes('porter'));
+
+  // Set active goalkeeper initially prioritizing natural goalkeeper among starters
   useEffect(() => {
     if (!matchState.isPreMatch && matchState.titulares.length > 0 && !activeGoalkeeperId) {
-      setActiveGoalkeeperId(matchState.titulares[0]);
+      const gkStarter = players.find(p => matchState.titulares.includes(p.id) && isNaturalGoalkeeper(p));
+      setActiveGoalkeeperId(gkStarter ? gkStarter.id : matchState.titulares[0]);
     }
-  }, [matchState.isPreMatch, matchState.titulares, activeGoalkeeperId]);
+  }, [matchState.isPreMatch, matchState.titulares, activeGoalkeeperId, players]);
 
   // Ticking countdown clock
   useEffect(() => {
@@ -837,8 +841,9 @@ export default function LiveTracker({
       };
     });
 
-    // Automatically set position 1 titular as designated goalkeeper
-    setActiveGoalkeeperId(matchState.titulares[0]);
+    // Prioritize natural goalkeeper among starters, fallback to starter position 1
+    const gkStarter = players.find(p => matchState.titulares.includes(p.id) && isNaturalGoalkeeper(p));
+    setActiveGoalkeeperId(gkStarter ? gkStarter.id : matchState.titulares[0]);
   };
 
   const handleSetSecondHalfStarter = (idx: number, playerId: string) => {
@@ -916,7 +921,10 @@ export default function LiveTracker({
         suplentes: updatedSuplentes,
         overallSeconds: startHalf2Secs,
         playersState: updatedPlayersState,
-        rotationEvents: [...(prev.rotationEvents || []), endHalf1Event, startHalf2Event]
+        rotationEvents: consolidateRotationEvents(
+          [...(prev.rotationEvents || []), endHalf1Event, startHalf2Event],
+          prev.shotsEvents
+        )
       };
     });
 
@@ -996,7 +1004,10 @@ export default function LiveTracker({
             titulares: updatedTitulares,
             suplentes: updatedSuplentes,
             playersState: updatedPlayersState,
-            rotationEvents: [...(prev.rotationEvents || []), enterEvent]
+            rotationEvents: consolidateRotationEvents(
+              [...(prev.rotationEvents || []), enterEvent],
+              prev.shotsEvents
+            )
           };
         });
       }
@@ -1065,7 +1076,10 @@ export default function LiveTracker({
         titulares: updatedTitulares,
         suplentes: updatedSuplentes,
         playersState: updated,
-        rotationEvents: [...(prev.rotationEvents || []), subEvent]
+        rotationEvents: consolidateRotationEvents(
+          [...(prev.rotationEvents || []), subEvent],
+          prev.shotsEvents
+        )
       };
     });
 
@@ -1288,19 +1302,22 @@ export default function LiveTracker({
       if (isNewlyRed && wasOnCourt) {
         const nextOnCourtIds = Object.keys(nextPlayersState).filter(pid => nextPlayersState[pid]?.isOnCourt);
         const nowTs = Date.now();
-        nextRotationEvents = [
-          ...nextRotationEvents,
-          {
-            id: `rot-${nowTs}-red`,
-            half: prev.half,
-            timeString: displayChronometer(prev.overallSeconds),
-            secondsRemaining: prev.overallSeconds,
-            type: 'red_card',
-            outPlayerId: pId,
-            onCourtIds: nextOnCourtIds,
-            timestamp: nowTs
-          }
-        ];
+        nextRotationEvents = consolidateRotationEvents(
+          [
+            ...nextRotationEvents,
+            {
+              id: `rot-${nowTs}-red`,
+              half: prev.half,
+              timeString: displayChronometer(prev.overallSeconds),
+              secondsRemaining: prev.overallSeconds,
+              type: 'red_card',
+              outPlayerId: pId,
+              onCourtIds: nextOnCourtIds,
+              timestamp: nowTs
+            }
+          ],
+          prev.shotsEvents
+        );
       }
 
       return {
@@ -1348,19 +1365,22 @@ export default function LiveTracker({
       if (isRedNow && ps.isOnCourt && !ps.redCard) {
         const nextOnCourtIds = Object.keys(nextPlayersState).filter(pid => nextPlayersState[pid]?.isOnCourt);
         const nowTs = Date.now();
-        nextRotationEvents = [
-          ...nextRotationEvents,
-          {
-            id: `rot-${nowTs}-red`,
-            half: prev.half,
-            timeString: displayChronometer(prev.overallSeconds),
-            secondsRemaining: prev.overallSeconds,
-            type: 'red_card',
-            outPlayerId: pId,
-            onCourtIds: nextOnCourtIds,
-            timestamp: nowTs
-          }
-        ];
+        nextRotationEvents = consolidateRotationEvents(
+          [
+            ...nextRotationEvents,
+            {
+              id: `rot-${nowTs}-red`,
+              half: prev.half,
+              timeString: displayChronometer(prev.overallSeconds),
+              secondsRemaining: prev.overallSeconds,
+              type: 'red_card',
+              outPlayerId: pId,
+              onCourtIds: nextOnCourtIds,
+              timestamp: nowTs
+            }
+          ],
+          prev.shotsEvents
+        );
       }
 
       return {
@@ -1449,7 +1469,10 @@ export default function LiveTracker({
       onCourtIds: currentEndOnCourt,
       timestamp: endTs
     };
-    const finalRotationEvents = [...(matchState.rotationEvents || []), endMatchRotEvent];
+    const finalRotationEvents = consolidateRotationEvents(
+      [...(matchState.rotationEvents || []), endMatchRotEvent],
+      matchState.shotsEvents
+    );
 
     const outputMatch: Omit<Match, 'id'> = {
       rival: matchState.rival.trim(),
@@ -1495,7 +1518,19 @@ export default function LiveTracker({
   const convocatedRoster = players.filter(p => convocatedIds.includes(p.id));
   const onCourtPlayers = players
     .filter(p => p.isActive && convocatedIds.includes(p.id) && matchState.playersState[p.id]?.isOnCourt)
-    .sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
+    .sort((a, b) => {
+      const aIsActiveGK = a.id === activeGoalkeeperId;
+      const bIsActiveGK = b.id === activeGoalkeeperId;
+      if (aIsActiveGK && !bIsActiveGK) return -1;
+      if (!aIsActiveGK && bIsActiveGK) return 1;
+
+      const aIsNaturalGK = isNaturalGoalkeeper(a);
+      const bIsNaturalGK = isNaturalGoalkeeper(b);
+      if (aIsNaturalGK && !bIsNaturalGK) return -1;
+      if (!aIsNaturalGK && bIsNaturalGK) return 1;
+
+      return (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0);
+    });
   const benchTeam = players
     .filter(p => !matchState.playersState[p.id]?.isOnCourt && p.isActive && convocatedIds.includes(p.id))
     .sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
@@ -2829,6 +2864,7 @@ export default function LiveTracker({
                           {onCourtPlayers.map(oc => {
                             const ocState = matchState.playersState[oc.id];
                             const shiftSecs = ocState ? (ocState.currentShiftSeconds ?? ocState.secondsPlayed) : 0;
+                            const ocIsGK = oc.id === activeGoalkeeperId;
                             return (
                               <button
                                 key={oc.id}
@@ -2836,10 +2872,14 @@ export default function LiveTracker({
                                   e.stopPropagation();
                                   handleExecuteSubstitution(oc.id);
                                 }}
-                                className="w-full text-left py-0.5 px-1 bg-slate-50 hover:bg-blue-600 hover:text-white rounded border border-slate-200 text-[7.5px] font-bold transition truncate flex justify-between items-center cursor-pointer"
-                                title={`Sustituir a ${getDisambiguatedPlayerLabel(oc, convocatedRoster, true)}`}
+                                className={`w-full text-left py-0.5 px-1 hover:bg-blue-600 hover:text-white hover:border-blue-600 rounded border text-[7.5px] font-bold transition truncate flex justify-between items-center cursor-pointer ${
+                                  ocIsGK
+                                    ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                                    : 'bg-slate-50 border-slate-200'
+                                }`}
+                                title={`Sustituir a ${ocIsGK ? '🧤 ' : ''}${getDisambiguatedPlayerLabel(oc, convocatedRoster, true)}`}
                               >
-                                <span className="truncate mr-1">{getDisambiguatedPlayerLabel(oc, convocatedRoster, true)}</span>
+                                <span className="truncate mr-1">{ocIsGK ? '🧤 ' : ''}{getDisambiguatedPlayerLabel(oc, convocatedRoster, true)}</span>
                                 <span className="shrink-0 text-[6.5px] opacity-75 font-mono">
                                   {displayChronometer(shiftSecs)} (Tot {displayChronometer(ocState?.secondsPlayed || 0)})
                                 </span>

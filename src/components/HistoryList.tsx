@@ -23,9 +23,11 @@ import { Match, Player } from "../types";
 import { exportMatchToPDF } from "../utils/pdfGenerator";
 import {
   computeQuintetStats,
+  formatRotationMovement,
   getDisplayRotationEvents,
   getDisambiguatedPlayerLabel,
   formatSecondsMMSS,
+  sortLineupIds,
 } from "../utils/lineupAnalytics";
 
 interface HistoryListProps {
@@ -1022,19 +1024,21 @@ export default function HistoryList({
                                       ) : (
                                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                                           {halfEvents.map((ev) => {
-                                            let actionText = "Quinteto Inicial";
+                                            const actionText =
+                                              formatRotationMovement(
+                                                ev,
+                                                formatChipLabel,
+                                                " ⬅ ",
+                                              );
                                             let badgeClass =
                                               "bg-blue-100 text-[#004183]";
                                             if (ev.type === "substitution") {
-                                              actionText = `Entra ${formatChipLabel(ev.inPlayerId)} ⬅ Sale ${formatChipLabel(ev.outPlayerId)}`;
                                               badgeClass =
                                                 "bg-amber-100 text-amber-900";
                                             } else if (ev.type === "enter") {
-                                              actionText = `Entra ${formatChipLabel(ev.inPlayerId)}`;
                                               badgeClass =
                                                 "bg-emerald-100 text-emerald-800";
                                             } else if (ev.type === "red_card") {
-                                              actionText = `Expulsión (Roja) ${formatChipLabel(ev.outPlayerId)}`;
                                               badgeClass =
                                                 "bg-rose-100 text-rose-800";
                                             }
@@ -1057,7 +1061,10 @@ export default function HistoryList({
                                                   <span className="font-bold text-slate-600">
                                                     En pista:
                                                   </span>{" "}
-                                                  {ev.onCourtIds
+                                                  {sortLineupIds(
+                                                    ev.onCourtIds,
+                                                    players,
+                                                  )
                                                     .map(formatChipLabel)
                                                     .join(", ")}
                                                 </p>
