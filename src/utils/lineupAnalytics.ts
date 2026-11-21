@@ -29,7 +29,7 @@ export const parseClockToSeconds = (timeString: string): number => {
   if (parts.length !== 2) return 0;
   const mins = Number(parts[0]);
   const secs = Number(parts[1]);
-  if (Number.isNaN(mins) || Number.isNaN(secs)) return 0;
+  if (!Number.isFinite(mins) || !Number.isFinite(secs)) return 0;
   return Math.max(0, Math.round(mins * 60 + secs));
 };
 
@@ -39,6 +39,9 @@ export const formatSecondsMMSS = (totalSeconds: number): string => {
   const secs = safe % 60;
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
+
+const isNaturalGoalkeeperRole = (p?: Player): boolean =>
+  p?.position === 'Portero/a' || Boolean(p?.position?.toLowerCase().includes('porter'));
 
 const extractSurnameTokens = (player: Player): string[] => {
   const fullName = (player.name || '').trim();
@@ -96,6 +99,8 @@ export const getDisambiguatedPlayerLabel = (
 
         if (fullSurnameCollision && surnameTokens.length > 1) {
           resolvedLabel = `${base} ${firstSurname} ${surnameTokens[1].charAt(0).toUpperCase()}.`;
+        } else if (fullSurnameCollision && !includeNumber) {
+          resolvedLabel = `${base} ${firstSurname} (#${player.number})`;
         } else {
           resolvedLabel = `${base} ${firstSurname}`;
         }
@@ -109,13 +114,21 @@ export const getDisambiguatedPlayerLabel = (
 };
 
 const compareHalfEventsChrono = (a: RotationEvent, b: RotationEvent): number => {
+  const tsA = a.timestamp || 0;
+  const tsB = b.timestamp || 0;
+  if (tsA > 0 && tsB > 0 && tsA !== tsB) {
+    return tsA - tsB;
+  }
   if (a.secondsRemaining !== b.secondsRemaining) {
     return b.secondsRemaining - a.secondsRemaining;
   }
-  return (a.timestamp || 0) - (b.timestamp || 0);
+  return tsA - tsB;
 };
 
 const parseShotTimestamp = (shot: ShotEvent): number | null => {
+  if (typeof shot?.timestamp === 'number' && Number.isFinite(shot.timestamp) && shot.timestamp > 0) {
+    return shot.timestamp;
+  }
   if (!shot?.id) return null;
   const match = /^s-(\d+)$/.exec(shot.id);
   if (!match) return null;
@@ -132,10 +145,12 @@ const hasPlayActionBetween = (
 ): boolean => {
   return shotsEvents.some((shot) => {
     if (shot.half !== half) return false;
-    if (parseClockToSeconds(shot.timeString) !== sec) return false;
     const shotTs = parseShotTimestamp(shot);
     if (shotTs === null) return false;
-    return fromTs <= shotTs && shotTs <= toTs;
+    if (fromTs > 0 && toTs > 0) {
+      return fromTs <= shotTs && shotTs <= toTs;
+    }
+    return parseClockToSeconds(shot.timeString) === sec;
   });
 };
 
@@ -170,6 +185,7 @@ export const consolidateRotationEvents = (
       }
 
       const prevEv = currentCluster[currentCluster.length - 1];
+      const involvesRedCard = ev.type === 'red_card' || prevEv.type === 'red_card';
       const sameClock = ev.secondsRemaining === prevEv.secondsRemaining;
       const interruptedByPlay =
         sameClock &&
@@ -181,7 +197,7 @@ export const consolidateRotationEvents = (
           ev.timestamp || 0
         );
 
-      if (sameClock && !interruptedByPlay) {
+      if (sameClock && !interruptedByPlay && !involvesRedCard) {
         currentCluster.push(ev);
       } else {
         clusters.push([ev]);
@@ -309,7 +325,8 @@ export const formatRotationMovement = (
 export const getOnCourtAtMoment = (
   match: Match,
   half: 1 | 2,
-  timeString: string
+  timeString: string,
+  shotTimestamp?: number
 ): string[] => {
   const events = consolidateRotationEvents(
     match.rotationEvents || [],
@@ -319,6 +336,23 @@ export const getOnCourtAtMoment = (
     .sort(compareHalfEventsChrono);
 
   if (events.length === 0) return [];
+
+  const allHaveTimestamp =
+    shotTimestamp !== undefined &&
+    Number.isFinite(shotTimestamp) &&
+    events.every((ev) => (ev.timestamp || 0) > 0);
+
+  if (allHaveTimestamp && shotTimestamp !== undefined) {
+    let matchedByTs: RotationEvent | null = null;
+    for (const ev of events) {
+      if ((ev.timestamp || 0) <= shotTimestamp) {
+        matchedByTs = ev;
+      } else {
+        break;
+      }
+    }
+    return matchedByTs ? [...matchedByTs.onCourtIds] : [...events[0].onCourtIds];
+  }
 
   const targetSec = parseClockToSeconds(timeString);
   let matched: RotationEvent | null = null;
@@ -338,7 +372,8 @@ export const getShotOnCourtIds = (match: Match, shot: ShotEvent): string[] => {
   if (shot.onCourtIds && shot.onCourtIds.length > 0) {
     return shot.onCourtIds;
   }
-  return getOnCourtAtMoment(match, shot.half, shot.timeString);
+  const shotTs = parseShotTimestamp(shot) ?? undefined;
+  return getOnCourtAtMoment(match, shot.half, shot.timeString, shotTs);
 };
 
 export const sortLineupIds = (ids: string[], allPlayers: Player[]): string[] => {
@@ -348,8 +383,8 @@ export const sortLineupIds = (ids: string[], allPlayers: Player[]): string[] => 
   return uniqueIds.sort((idA, idB) => {
     const pA = playerMap.get(idA);
     const pB = playerMap.get(idB);
-    const isGkA = pA?.position === 'Portero/a' ? 0 : 1;
-    const isGkB = pB?.position === 'Portero/a' ? 0 : 1;
+    const isGkA = isNaturalGoalkeeperRole(pA) ? 0 : 1;
+    const isGkB = isNaturalGoalkeeperRole(pB) ? 0 : 1;
     if (isGkA !== isGkB) return isGkA - isGkB;
 
     const numA = parseInt(pA?.number || '', 10);
@@ -399,19 +434,42 @@ export const computeQuintetStats = (
   );
 
   for (const half of [1, 2] as const) {
-    const halfEvents = consolidatedEvents
-      .filter((ev) => ev.half === half)
+    const halfEvents = consolidatedEvents.filter((ev) => ev.half === half);
+    const halfEndEvents = halfEvents
+      .filter((ev) => ev.type === 'half_end')
+      .sort(compareHalfEventsChrono);
+    const lastHalfEnd =
+      halfEndEvents.length > 0 ? halfEndEvents[halfEndEvents.length - 1] : null;
+    const rotationOps = halfEvents
+      .filter((ev) => ev.type !== 'half_end')
       .sort(compareHalfEventsChrono);
 
-    for (let i = 0; i < halfEvents.length; i++) {
-      const ev = halfEvents[i];
-      if (ev.type === 'half_end') continue;
+    if (rotationOps.length === 0) continue;
+
+    // If a half has no half_end marker, bound the tail stint using observed shots rather than inflating to 00:00
+    let fallbackEndSec = rotationOps[rotationOps.length - 1].secondsRemaining;
+    if (!lastHalfEnd) {
+      const halfShots = (match.shotsEvents || []).filter((s) => s.half === half);
+      if (halfShots.length > 0) {
+        const minShotSec = Math.min(
+          ...halfShots.map((s) => parseClockToSeconds(s.timeString))
+        );
+        fallbackEndSec = Math.min(fallbackEndSec, minShotSec);
+      }
+    }
+
+    for (let i = 0; i < rotationOps.length; i++) {
+      const ev = rotationOps[i];
       const cleanIds = ev.onCourtIds.filter(Boolean);
       if (cleanIds.length === 0) continue;
 
-      const nextEv = halfEvents[i + 1];
+      const nextEv = rotationOps[i + 1];
       const startSec = ev.secondsRemaining;
-      const endSec = nextEv ? nextEv.secondsRemaining : 0;
+      const endSec = nextEv
+        ? nextEv.secondsRemaining
+        : lastHalfEnd
+          ? lastHalfEnd.secondsRemaining
+          : fallbackEndSec;
       const duration = Math.max(0, startSec - endSec);
 
       const group = ensureGroup(cleanIds);
@@ -497,7 +555,7 @@ export const computeSeasonQuintetStats = (
   for (const match of matches) {
     const matchQuintets = computeQuintetStats(match, allPlayers);
     for (const q of matchQuintets) {
-      if (q.playerIds.length !== 5 || q.secondsTogether <= 0) continue;
+      if (q.playerIds.length !== 5) continue;
 
       const existing = aggMap.get(q.key);
       if (!existing) {

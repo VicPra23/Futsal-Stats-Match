@@ -71,7 +71,7 @@ const loadImgBase64 = (url: string): Promise<string> => {
 
 // Preload Logo Base64 to make generation synchronous on user gesture thread
 let preloadedLogoBase64 = '';
-const logoUrl = 'https://api.clupik.com/clubs/10590/images/navbar.png';
+const logoUrl = './logo.png';
 try {
   loadImgBase64(logoUrl).then(res => {
     preloadedLogoBase64 = res;
@@ -285,6 +285,47 @@ export function getMinuteIntervalFromMinute(matchMinute: number): typeof MINUTE_
   if (matchMinute <= 35) return '31-35';
   return '36-40';
 }
+
+export function getMinuteIntervalFromShot(
+  shot: ShotEvent,
+  periodDurationMinutes: number = 20
+): typeof MINUTE_INTERVALS[number] {
+  const durMins = periodDurationMinutes > 0 ? periodDurationMinutes : 20;
+  const durSecs = durMins * 60;
+  let elapsedRatio = 0.5;
+  if (shot.timeString) {
+    const parts = shot.timeString.split(':');
+    const mins = parseInt(parts[0], 10) || 0;
+    const secs = parseInt(parts[1], 10) || 0;
+    const remainingSecs = mins * 60 + secs;
+    const elapsedSecs = Math.max(0, Math.min(durSecs, durSecs - remainingSecs));
+    elapsedRatio = elapsedSecs / durSecs;
+  }
+  const binIndex = Math.min(3, Math.floor(elapsedRatio * 4));
+  if (shot.half === 1) {
+    return MINUTE_INTERVALS[binIndex];
+  }
+  return MINUTE_INTERVALS[4 + binIndex];
+}
+
+export const sanitizePdfFilePart = (raw: string): string =>
+  String(raw || '')
+    .trim()
+    .replace(/[/\\:*?"<>|]+/g, '')
+    .replace(/\s+/g, '_');
+
+const updateAllPageFooters = (doc: jsPDF) => {
+  const actualTotalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= actualTotalPages; i++) {
+    doc.setPage(i);
+    doc.setFillColor(255, 255, 255);
+    doc.rect(158, 281, 49, 7, 'F');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(110, 110, 110);
+    doc.text(`Pág. ${i} de ${actualTotalPages}`, 195, 285, { align: 'right' });
+  }
+};
 
 // Draw Goal Distribution by Minute Intervals Chart for jsPDF
 export const drawMinutesGoalChartPDF = (
@@ -625,7 +666,7 @@ const drawPageHeader = (doc: jsPDF, title: string, subtitle: string, pageNum: nu
   doc.setFontSize(8);
   doc.setTextColor(110, 110, 110);
   doc.text(`FS Talavera - Club de Fútbol Sala. Todos los derechos reservados.`, 15, 285);
-  doc.text(`Pág. ${pageNum} de ${totalPages}`, 205, 285, { align: 'right' });
+  doc.text(`Pág. ${pageNum} de ${totalPages}`, 195, 285, { align: 'right' });
 };
 
 // EXPORT EXACT SINGLE PAGE MATCH REPORT
@@ -687,14 +728,15 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
   doc.setFontSize(10);
   doc.text('ANÁLISIS COLECTIVO: 1ª PARTE', col1X + 4, colY + 6);
 
-  const goals1stLocal = match.shotsEvents.filter(s => s.team === 'local' && s.type === 'goal' && s.half === 1).length;
-  const goals1stRival = match.shotsEvents.filter(s => s.team === 'rival' && s.type === 'goal' && s.half === 1).length;
-  const shots1stLocal = match.shotsEvents.filter(s => s.team === 'local' && s.half === 1).length;
-  const shots1stLocalIn = match.shotsEvents.filter(s => s.team === 'local' && s.half === 1 && (s.type === 'on_target' || s.type === 'goal')).length;
-  const shots1stLocalOut = match.shotsEvents.filter(s => s.team === 'local' && s.half === 1 && s.type === 'out').length;
-  const shots1stRival = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 1).length;
-  const shots1stRivalIn = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 1 && (s.type === 'on_target' || s.type === 'goal')).length;
-  const shots1stRivalOut = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 1 && s.type === 'out').length;
+  const shotsEvents = match.shotsEvents || [];
+  const goals1stLocal = shotsEvents.filter(s => s.team === 'local' && s.type === 'goal' && s.half === 1).length;
+  const goals1stRival = shotsEvents.filter(s => s.team === 'rival' && s.type === 'goal' && s.half === 1).length;
+  const shots1stLocal = shotsEvents.filter(s => s.team === 'local' && s.half === 1).length;
+  const shots1stLocalIn = shotsEvents.filter(s => s.team === 'local' && s.half === 1 && (s.type === 'on_target' || s.type === 'goal')).length;
+  const shots1stLocalOut = shotsEvents.filter(s => s.team === 'local' && s.half === 1 && s.type === 'out').length;
+  const shots1stRival = shotsEvents.filter(s => s.team === 'rival' && s.half === 1).length;
+  const shots1stRivalIn = shotsEvents.filter(s => s.team === 'rival' && s.half === 1 && (s.type === 'on_target' || s.type === 'goal')).length;
+  const shots1stRivalOut = shotsEvents.filter(s => s.team === 'rival' && s.half === 1 && s.type === 'out').length;
   const fouls1stLocal = match.localFouls1stHalf || 0;
   const fouls1stRival = match.rivalFouls1stHalf || 0;
 
@@ -712,7 +754,7 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
   doc.text(`Faltas: Equipo ${fouls1stLocal} (${bonusLocal1st}) • Rival ${fouls1stRival} (${bonusRival1st})`, col1X + 4, colY + 16.5);
 
   // Draw 1st Half Shot Map (telemetry strip sits above y = colY + 25)
-  drawFutsalPitchPDF(doc, col1X + 3, colY + 25, 80, 40, match.shotsEvents, 1, match.rivalColor, match.talaveraKit);
+  drawFutsalPitchPDF(doc, col1X + 3, colY + 25, 80, 40, shotsEvents, 1, match.rivalColor, match.talaveraKit);
 
 
   // 2ª PARTE (Derecha Column card)
@@ -724,14 +766,14 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
   doc.setFontSize(10);
   doc.text('ANÁLISIS COLECTIVO: 2ª PARTE', col2X + 4, colY + 6);
 
-  const goals2ndLocal = match.shotsEvents.filter(s => s.team === 'local' && s.type === 'goal' && s.half === 2).length;
-  const goals2ndRival = match.shotsEvents.filter(s => s.team === 'rival' && s.type === 'goal' && s.half === 2).length;
-  const shots2ndLocal = match.shotsEvents.filter(s => s.team === 'local' && s.half === 2).length;
-  const shots2ndLocalIn = match.shotsEvents.filter(s => s.team === 'local' && s.half === 2 && (s.type === 'on_target' || s.type === 'goal')).length;
-  const shots2ndLocalOut = match.shotsEvents.filter(s => s.team === 'local' && s.half === 2 && s.type === 'out').length;
-  const shots2ndRival = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 2).length;
-  const shots2ndRivalIn = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 2 && (s.type === 'on_target' || s.type === 'goal')).length;
-  const shots2ndRivalOut = match.shotsEvents.filter(s => s.team === 'rival' && s.half === 2 && s.type === 'out').length;
+  const goals2ndLocal = shotsEvents.filter(s => s.team === 'local' && s.type === 'goal' && s.half === 2).length;
+  const goals2ndRival = shotsEvents.filter(s => s.team === 'rival' && s.type === 'goal' && s.half === 2).length;
+  const shots2ndLocal = shotsEvents.filter(s => s.team === 'local' && s.half === 2).length;
+  const shots2ndLocalIn = shotsEvents.filter(s => s.team === 'local' && s.half === 2 && (s.type === 'on_target' || s.type === 'goal')).length;
+  const shots2ndLocalOut = shotsEvents.filter(s => s.team === 'local' && s.half === 2 && s.type === 'out').length;
+  const shots2ndRival = shotsEvents.filter(s => s.team === 'rival' && s.half === 2).length;
+  const shots2ndRivalIn = shotsEvents.filter(s => s.team === 'rival' && s.half === 2 && (s.type === 'on_target' || s.type === 'goal')).length;
+  const shots2ndRivalOut = shotsEvents.filter(s => s.team === 'rival' && s.half === 2 && s.type === 'out').length;
   const fouls2ndLocal = match.localFouls2ndHalf || 0;
   const fouls2ndRival = match.rivalFouls2ndHalf || 0;
 
@@ -748,7 +790,7 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
   doc.text(`Faltas: Equipo ${fouls2ndLocal} (${bonusLocal2nd}) • Rival ${fouls2ndRival} (${bonusRival2nd})`, col2X + 4, colY + 16.5);
 
   // Draw 2nd Half Shot Map (telemetry strip sits above y = colY + 25)
-  drawFutsalPitchPDF(doc, col2X + 3, colY + 25, 80, 40, match.shotsEvents, 2, match.rivalColor, match.talaveraKit);
+  drawFutsalPitchPDF(doc, col2X + 3, colY + 25, 80, 40, shotsEvents, 2, match.rivalColor, match.talaveraKit);
 
 
   // --- LOWER HALF (PAGE 1): ESTADÍSTICAS COLECTIVAS (Left) vs TIMELINE DE GOLES (Right) ---
@@ -775,14 +817,14 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
   const localGoalsTotal = match.goalsFor;
   const rivalGoalsTotal = match.goalsAgainst;
 
-  const localShotsTotal = match.shotsEvents.filter(s => s.team === 'local').length;
-  const rivalShotsTotal = match.shotsEvents.filter(s => s.team === 'rival').length;
+  const localShotsTotal = shotsEvents.filter(s => s.team === 'local').length;
+  const rivalShotsTotal = shotsEvents.filter(s => s.team === 'rival').length;
 
-  const localShotsOnTarget = match.shotsEvents.filter(s => s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
-  const rivalShotsOnTarget = match.shotsEvents.filter(s => s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
+  const localShotsOnTarget = shotsEvents.filter(s => s.team === 'local' && (s.type === 'on_target' || s.type === 'goal')).length;
+  const rivalShotsOnTarget = shotsEvents.filter(s => s.team === 'rival' && (s.type === 'on_target' || s.type === 'goal')).length;
 
-  const localShotsOut = match.shotsEvents.filter(s => s.team === 'local' && s.type === 'out').length;
-  const rivalShotsOut = match.shotsEvents.filter(s => s.team === 'rival' && s.type === 'out').length;
+  const localShotsOut = shotsEvents.filter(s => s.team === 'local' && s.type === 'out').length;
+  const rivalShotsOut = shotsEvents.filter(s => s.team === 'rival' && s.type === 'out').length;
 
   const mappedResultSymbol = match.result === 'W' ? 'V' : match.result === 'D' ? 'E' : 'D';
   const collectiveHeaders = [['Indicador', 'LCL', 'RVL']];
@@ -857,7 +899,7 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
 
 
   // --- GOAL TIMELINE TABLE (Right Side) ---
-  const goalEvents = [...match.shotsEvents].filter(s => s.type === 'goal');
+  const goalEvents = [...shotsEvents].filter(s => s.type === 'goal');
   const parseTimeToSeconds = (timeString: string): number => {
     const [min, sec] = timeString.split(':').map(n => parseInt(n, 10) || 0);
     return min * 60 + sec;
@@ -995,7 +1037,7 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
   });
 
   const individualRows = finalPlayersToReport.map(p => {
-    const perf = match.stats[p.id] || {
+    const perf = (match.stats || {})[p.id] || {
       secondsPlayed: 0,
       secondsPlayed1st: 0,
       secondsPlayed2nd: 0,
@@ -1008,10 +1050,14 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
     };
 
     const isStartingGoalkeeper = match.titulares && match.titulares[0] === p.id;
-    const isPortera = p.position === 'Portero/a' || isStartingGoalkeeper;
+    const isPortera =
+      p.position === 'Portero/a' ||
+      isStartingGoalkeeper ||
+      (perf.saves || 0) > 0 ||
+      (perf.goalsConceded || 0) > 0;
 
     const t1 = perf.secondsPlayed1st !== undefined ? formatTime(perf.secondsPlayed1st) : '-';
-    const t2 = perf.secondsPlayed2nd !== undefined ? formatTime(perf.secondsPlayed2nd) : formatTime(perf.secondsPlayed);
+    const t2 = perf.secondsPlayed2nd !== undefined ? formatTime(perf.secondsPlayed2nd) : '-';
     const tTot = formatTime(perf.secondsPlayed);
 
     return [
@@ -1047,7 +1093,7 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
     },
     columnStyles: {
       0: { fontStyle: 'bold', cellWidth: 8, halign: 'center' },
-      1: { fontStyle: 'bold', cellWidth: 46 },
+      1: { fontStyle: 'bold', cellWidth: 47 },
       2: { cellWidth: 20 },
       3: { halign: 'center', cellWidth: 16 },
       4: { halign: 'center', cellWidth: 16 },
@@ -1061,10 +1107,14 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
     margin: { left: 14 },
     tableWidth: 182,
     didParseCell: (data: any) => {
-      // Highlight the Portera or active goalkeeper with a specialized visual soft-amber background tint
+      // Highlight the Portero/a or active goalkeeper with a specialized visual soft-amber background tint
       const pId = finalPlayersToReport[data.row.index]?.id;
+      const perfCell = pId ? (match.stats || {})[pId] : undefined;
       const isStartingGoalkeeper = match.titulares && match.titulares[0] === pId;
-      const isPortera = finalPlayersToReport[data.row.index]?.position === 'Portero/a' || isStartingGoalkeeper;
+      const isPortera =
+        finalPlayersToReport[data.row.index]?.position === 'Portero/a' ||
+        isStartingGoalkeeper ||
+        Boolean(perfCell && ((perfCell.saves || 0) > 0 || (perfCell.goalsConceded || 0) > 0));
       
       if (isPortera && data.section === 'body') {
         data.cell.styles.fillColor = [254, 243, 199];
@@ -1248,24 +1298,14 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
         }
       }
     });
-
-    const actualTotalPages = doc.getNumberOfPages();
-    if (actualTotalPages !== totalPages) {
-      for (let i = 1; i <= actualTotalPages; i++) {
-        doc.setPage(i);
-        doc.setFillColor(255, 255, 255);
-        doc.rect(175, 281, 32, 7, 'F');
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(110, 110, 110);
-        doc.text(`Pág. ${i} de ${actualTotalPages}`, 205, 285, { align: 'right' });
-      }
-    }
   }
 
+  updateAllPageFooters(doc);
+
+  const safeRival = sanitizePdfFilePart(match.rival) || 'Rival';
   const fileName = match.matchType === 'amistoso'
-    ? `FS_Talavera_Amistoso_vs_${match.rival.replace(/\s+/g, '_')}.pdf`
-    : `FS_Talavera_Jornada_${match.jornada}_vs_${match.rival.replace(/\s+/g, '_')}.pdf`;
+    ? `FS_Talavera_Amistoso_vs_${safeRival}.pdf`
+    : `FS_Talavera_Jornada_${match.jornada ?? '-'}_vs_${safeRival}.pdf`;
   doc.save(fileName);
 };
 
@@ -1369,7 +1409,8 @@ export const exportTeamReportToPDF = (
   });
 
   matches.forEach(m => {
-    Object.keys(m.stats).forEach(pid => {
+    const mStats = m.stats || {};
+    Object.keys(mStats).forEach(pid => {
       if (!playersStatsMap[pid]) {
         playersStatsMap[pid] = {
           goals: 0,
@@ -1382,7 +1423,7 @@ export const exportTeamReportToPDF = (
           matchesPlayed: 0
         };
       }
-      const perf = m.stats[pid];
+      const perf = mStats[pid];
       playersStatsMap[pid].goals += perf.goals || 0;
       playersStatsMap[pid].shots += perf.shots || 0;
       playersStatsMap[pid].minutes += perf.secondsPlayed || 0;
@@ -1782,8 +1823,7 @@ export const exportTeamReportToPDF = (
     if (m.shotsEvents && m.shotsEvents.length > 0) {
       m.shotsEvents.forEach(s => {
         if (s.type === 'goal') {
-          const minute = getMatchMinuteFromShot(s);
-          const interval = getMinuteIntervalFromMinute(minute);
+          const interval = getMinuteIntervalFromShot(s, m.periodDurationMinutes ?? 20);
           if (s.team === 'local') {
             intervalGoalsLocalPDF[interval]++;
           } else {
@@ -1853,6 +1893,7 @@ export const exportTeamReportToPDF = (
       2: { halign: 'center', cellWidth: 23, fontStyle: 'bold' }
     }
   });
+  const row1LeftY = (doc as any).lastAutoTable?.finalY || 88;
 
   // Right: Minutos Jugados
   doc.setTextColor(51, 65, 85);
@@ -1883,9 +1924,10 @@ export const exportTeamReportToPDF = (
       2: { halign: 'center', cellWidth: 23 }
     }
   });
+  const row1RightY = (doc as any).lastAutoTable?.finalY || 88;
 
   // --- ROW 2: TIROS & AMONESTACIONES ---
-  const row2Y = Math.max((doc as any).lastAutoTable?.finalY || 88, 92) + 5;
+  const row2Y = Math.max(row1LeftY, row1RightY, 92) + 5;
 
   // Left: Tiros
   doc.setTextColor(51, 65, 85);
@@ -1916,6 +1958,7 @@ export const exportTeamReportToPDF = (
       2: { halign: 'center', cellWidth: 23 }
     }
   });
+  const row2LeftY = (doc as any).lastAutoTable?.finalY || 138;
 
   // Right: Amonestaciones
   doc.setTextColor(51, 65, 85);
@@ -1948,9 +1991,10 @@ export const exportTeamReportToPDF = (
       3: { halign: 'center', cellWidth: 11.5, fontStyle: 'bold' }
     }
   });
+  const row2RightY = (doc as any).lastAutoTable?.finalY || 138;
 
   // --- ROW 3: PORTERÍA & EFICACIA ---
-  const row3Y = Math.max((doc as any).lastAutoTable?.finalY || 138, 142) + 5;
+  const row3Y = Math.max(row2LeftY, row2RightY, 142) + 5;
 
   const topGoalkeepersList = [...playerStatsList]
     .filter(p => p.player.position === 'Portero/a' || p.saves > 0 || p.conceded > 0)
@@ -2063,11 +2107,12 @@ export const exportTeamReportToPDF = (
         matchesPlayed: 0
       };
       const accuracy = agg.shots > 0 ? `${((agg.goals / agg.shots) * 100).toFixed(0)}%` : '-';
-      const isGK = p.position === 'Portero/a';
+      const isGK = p.position === 'Portero/a' || agg.saves > 0 || agg.conceded > 0;
       const cardStr = agg.yellows > 0 || agg.redCards > 0 
         ? `${agg.yellows}A${agg.redCards > 0 ? ` + ${agg.redCards}R` : ''}`
         : '0';
       return {
+        isActive: p.isActive,
         dorsal: p.number,
         name: p.name,
         position: getPlayerPositionLabel(p.position, p.gender),
@@ -2082,10 +2127,7 @@ export const exportTeamReportToPDF = (
         isGK: isGK
       };
     })
-    .filter(item => {
-      const playerObj = players.find(p => p.number === item.dorsal);
-      return (playerObj && playerObj.isActive) || item.minutes > 0 || item.goals > 0 || item.shots > 0;
-    })
+    .filter(item => item.isActive || item.minutes > 0 || item.goals > 0 || item.shots > 0)
     .sort((a, b) => b.goals - a.goals || b.minutes - a.minutes);
 
   const scorersBody = sortedScorers.map(item => [
@@ -2103,7 +2145,7 @@ export const exportTeamReportToPDF = (
 
   autoTable(doc, {
     startY: 50,
-    margin: { left: 15 },
+    margin: { left: 15, bottom: 20 },
     tableWidth: 180,
     head: [['Nº', 'Jugador/a', 'Posición', 'Part.', 'Tiempo', 'Tir', 'Gol', 'Par/Enc', 'Tarjetas', 'Efect.']],
     body: scorersBody,
@@ -2111,16 +2153,16 @@ export const exportTeamReportToPDF = (
     headStyles: { fillColor: [0, 65, 131], textColor: [255, 255, 255], fontSize: 7.5, fontStyle: 'bold' },
     styles: { fontSize: 7.2, cellPadding: 1.8 },
     columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 8, halign: 'center' },
-      1: { fontStyle: 'bold', cellWidth: 35 },
-      2: { cellWidth: 18 },
-      3: { halign: 'center', cellWidth: 10 },
-      4: { halign: 'center', cellWidth: 15 },
-      5: { halign: 'center', cellWidth: 10 },
-      6: { halign: 'center', cellWidth: 10, fontStyle: 'bold' },
-      7: { halign: 'center', cellWidth: 22 },
-      8: { halign: 'center', cellWidth: 18 },
-      9: { halign: 'center', cellWidth: 14 }
+      0: { fontStyle: 'bold', cellWidth: 9, halign: 'center' },
+      1: { fontStyle: 'bold', cellWidth: 42 },
+      2: { cellWidth: 20 },
+      3: { halign: 'center', cellWidth: 11 },
+      4: { halign: 'center', cellWidth: 17 },
+      5: { halign: 'center', cellWidth: 11 },
+      6: { halign: 'center', cellWidth: 11, fontStyle: 'bold' },
+      7: { halign: 'center', cellWidth: 24 },
+      8: { halign: 'center', cellWidth: 20 },
+      9: { halign: 'center', cellWidth: 15 }
     },
     didParseCell: (data: any) => {
       const isPortero = sortedScorers[data.row.index]?.isGK;
@@ -2233,26 +2275,20 @@ export const exportTeamReportToPDF = (
         }
       }
     });
-
-    const actualTotalPages = doc.getNumberOfPages();
-    if (actualTotalPages !== totalPages) {
-      for (let i = 1; i <= actualTotalPages; i++) {
-        doc.setPage(i);
-        doc.setFillColor(255, 255, 255);
-        doc.rect(175, 281, 32, 7, 'F');
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(110, 110, 110);
-        doc.text(`Pág. ${i} de ${actualTotalPages}`, 205, 285, { align: 'right' });
-      }
-    }
   }
 
-  doc.save(`FS_Talavera_Reporte_Temporada_${seasonLabel.replace(/\s+/g, '_')}.pdf`);
+  updateAllPageFooters(doc);
+
+  const safeSeason = sanitizePdfFilePart(seasonLabel) || 'Temporada';
+  doc.save(`FS_Talavera_Reporte_Temporada_${safeSeason}.pdf`);
 };
 
 // REPORT EXPORTS: 2. PLAYER COMPARISONS TO PDF
-export const exportPlayerComparisonsToPDF = (selectedPlayers: Player[], matches: Match[]) => {
+export const exportPlayerComparisonsToPDF = (
+  selectedPlayers: Player[],
+  matches: Match[],
+  teamName?: string
+) => {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -2260,7 +2296,12 @@ export const exportPlayerComparisonsToPDF = (selectedPlayers: Player[], matches:
   });
 
   const logoBase64 = preloadedLogoBase64;
-  drawPageHeader(doc, 'COMPARATIVA INDIVIDUAL DE LA PLANTILLA', 'Análisis Comparativo Directo', 1, 1, logoBase64);
+  const cleanTeam = teamName && teamName.trim() ? teamName.trim() : '';
+  const compSubtitle =
+    cleanTeam && cleanTeam.toLowerCase() !== 'fs talavera'
+      ? `${cleanTeam} • Análisis Comparativo Directo`
+      : 'Análisis Comparativo Directo';
+  drawPageHeader(doc, 'COMPARATIVA INDIVIDUAL DE LA PLANTILLA', compSubtitle, 1, 1, logoBase64);
 
   doc.setTextColor(40, 40, 40);
   doc.setFont('helvetica', 'bold');
@@ -2275,6 +2316,7 @@ export const exportPlayerComparisonsToPDF = (selectedPlayers: Player[], matches:
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.text('Por favor, selecciona al menos un/a jugador/a en el panel para exportar el informe comparativo.', 15, 60);
+    updateAllPageFooters(doc);
     doc.save('FS_Talavera_Comparativa_Vacia.pdf');
     return;
   }
@@ -2294,7 +2336,7 @@ export const exportPlayerComparisonsToPDF = (selectedPlayers: Player[], matches:
     let matchesPlayed = 0;
 
     matches.forEach(m => {
-      const perf = m.stats[pId];
+      const perf = (m.stats || {})[pId];
       if (perf) {
         if (perf.secondsPlayed > 0) {
           matchesPlayed++;
@@ -2373,13 +2415,15 @@ export const exportPlayerComparisonsToPDF = (selectedPlayers: Player[], matches:
     [
       'Paradas de Portero/a (Saves)',
       ...playersMetrics.map(pm => {
-        return pm.player.position === 'Portero/a' ? pm.m.totSaves.toString() : '-';
+        const isGK = pm.player.position === 'Portero/a' || pm.m.totSaves > 0 || pm.m.totGoalsConceded > 0;
+        return isGK ? pm.m.totSaves.toString() : '-';
       })
     ],
     [
       'Goles Encajados',
       ...playersMetrics.map(pm => {
-        return pm.player.position === 'Portero/a' ? pm.m.totGoalsConceded.toString() : '-';
+        const isGK = pm.player.position === 'Portero/a' || pm.m.totSaves > 0 || pm.m.totGoalsConceded > 0;
+        return isGK ? pm.m.totGoalsConceded.toString() : '-';
       })
     ],
     [
@@ -2392,23 +2436,44 @@ export const exportPlayerComparisonsToPDF = (selectedPlayers: Player[], matches:
     ]
   ];
 
+  const metricColW = selectedPlayers.length > 4 ? 44 : 54;
+  const playerColW = Math.floor((180 - metricColW) / selectedPlayers.length);
+  const compColumnStyles: Record<number, any> = {
+    0: { halign: 'left', fontStyle: 'bold', cellWidth: 180 - playerColW * selectedPlayers.length }
+  };
+  selectedPlayers.forEach((_, idx) => {
+    compColumnStyles[idx + 1] = { halign: 'center', cellWidth: playerColW };
+  });
+
   autoTable(doc, {
     startY: 58,
+    margin: { top: 44, left: 15, bottom: 20 },
+    tableWidth: 180,
     head: headers,
     body: compData,
     theme: 'striped',
     headStyles: {
       fillColor: [0, 65, 131],
       textColor: [255, 255, 255],
-      fontStyle: 'bold'
+      fontStyle: 'bold',
+      fontSize: selectedPlayers.length > 4 ? 7.5 : 8.5
     },
     styles: {
-      fontSize: 9,
-      cellPadding: 3
+      fontSize: selectedPlayers.length > 4 ? 7.8 : 8.8,
+      cellPadding: selectedPlayers.length > 4 ? 2.2 : 3
+    },
+    columnStyles: compColumnStyles,
+    didDrawPage: (data: any) => {
+      if (data.pageNumber > 1) {
+        drawPageHeader(doc, 'COMPARATIVA INDIVIDUAL DE LA PLANTILLA', compSubtitle, data.pageNumber, data.pageNumber, logoBase64);
+      }
     }
   });
 
-  doc.save(`FS_Talavera_Comparativa_Plantilla.pdf`);
+  updateAllPageFooters(doc);
+
+  const teamPart = cleanTeam && cleanTeam.toLowerCase() !== 'fs talavera' ? `${sanitizePdfFilePart(cleanTeam)}_` : '';
+  doc.save(`FS_Talavera_${teamPart}Comparativa_Plantilla.pdf`);
 };
 
 // --- TECHNICAL DOSSIER FOR REPRESENTED PLAYERS (INDIVIDUAL & BULK SQUAD CARD EXPORT) ---
@@ -2416,13 +2481,14 @@ const calculateAge = (birthDateStr: string): string => {
   if (!birthDateStr) return 'N/D';
   try {
     const birth = new Date(birthDateStr);
+    if (isNaN(birth.getTime())) return 'N/D';
     const now = new Date();
     let age = now.getFullYear() - birth.getFullYear();
     const m = now.getMonth() - birth.getMonth();
     if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) {
       age--;
     }
-    return isNaN(age) ? 'N/D' : `${age} años`;
+    return `${Math.max(0, age)} años`;
   } catch (e) {
     return 'N/D';
   }
@@ -2665,7 +2731,7 @@ export const exportPlayerDossierToPDF = (
 
       matches.forEach(m => {
         if (filter && m.matchType !== filter) return;
-        const perf = m.stats[p.id];
+        const perf = (m.stats || {})[p.id];
         if (perf) {
           if (perf.secondsPlayed > 0) count++;
           sec += perf.secondsPlayed || 0;
@@ -2899,10 +2965,10 @@ export const exportPlayerDossierToPDF = (
 
     sortedMatches.forEach(m => {
       if (matchTypeFilter !== 'all' && m.matchType !== matchTypeFilter) return;
-      const perf = m.stats[p.id];
+      const perf = (m.stats || {})[p.id];
       if (perf && perf.secondsPlayed > 0) {
         const resLabel = m.result === 'W' ? 'Victoria' : m.result === 'D' ? 'Empate' : 'Derrota';
-        const typeLabel = m.matchType === 'amistoso' ? 'Amistoso' : `Oficial J.${m.jornada}`;
+        const typeLabel = m.matchType === 'amistoso' ? 'Amistoso' : `Oficial J.${m.jornada ?? '-'}`;
         const keyStat = isGK 
           ? `${perf.saves || 0} / -${perf.goalsConceded || 0}`
           : `${perf.yellows || 0}A ${perf.redCard ? '+ 1R' : ''}`;
@@ -2925,6 +2991,7 @@ export const exportPlayerDossierToPDF = (
       histBody.push(['-', 'No se registra participación activa en partidos archivados.', '-', '-', '-', '-', '-', '-', '-']);
     }
 
+    const histStartPage = doc.getNumberOfPages();
     autoTable(doc, {
       startY: nextY + 3.5,
       head: histHeaders,
@@ -2943,17 +3010,17 @@ export const exportPlayerDossierToPDF = (
         halign: 'center'
       },
       columnStyles: {
-        0: { cellWidth: 16 },
-        1: { fontStyle: 'bold', halign: 'left', cellWidth: 32 },
-        2: { cellWidth: 20 },
-        3: { cellWidth: 14 },
-        4: { cellWidth: 15, fontStyle: 'bold' },
-        5: { cellWidth: 18 },
-        6: { cellWidth: 10, fontStyle: 'bold' },
-        7: { cellWidth: 10 },
-        8: { cellWidth: 25 }
+        0: { cellWidth: 17 },
+        1: { fontStyle: 'bold', halign: 'left', cellWidth: 40 },
+        2: { cellWidth: 23 },
+        3: { cellWidth: 15 },
+        4: { cellWidth: 17, fontStyle: 'bold' },
+        5: { cellWidth: 19 },
+        6: { cellWidth: 11, fontStyle: 'bold' },
+        7: { cellWidth: 11 },
+        8: { cellWidth: 27 }
       },
-      margin: { left: 15 },
+      margin: { top: 44, left: 15, bottom: 20 },
       tableWidth: 180,
       didParseCell: (data) => {
         if (data.section === 'body') {
@@ -2966,6 +3033,18 @@ export const exportPlayerDossierToPDF = (
               data.cell.styles.textColor = [107, 114, 128]; // slate
             }
           }
+        }
+      },
+      didDrawPage: (data) => {
+        if (data.pageNumber > histStartPage) {
+          drawPageHeader(
+            doc,
+            titleStr,
+            subtitleStr,
+            data.pageNumber,
+            totalPages,
+            logoBase64
+          );
         }
       }
     });
@@ -2991,9 +3070,12 @@ export const exportPlayerDossierToPDF = (
     }
   });
 
+  updateAllPageFooters(doc);
+
   const suffix = matchTypeFilter === 'oficial' ? '_Oficiales' : matchTypeFilter === 'amistoso' ? '_Amistosos' : '_Todos';
+  const safePlayerAlias = sanitizePdfFilePart(playersToExport[0].alias || playersToExport[0].name || 'Jugador') || 'Jugador';
   const finalFileName = singleFileName || (playersToExport.length === 1 
-    ? `FS_Talavera_Ficha_${playersToExport[0].alias.replace(/\s+/g, '_') || 'Jugador'}${suffix}.pdf`
+    ? `FS_Talavera_Ficha_${safePlayerAlias}${suffix}.pdf`
     : `FS_Talavera_Dossier_Plantilla${suffix}.pdf`);
 
   doc.save(finalFileName);
