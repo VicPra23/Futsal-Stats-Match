@@ -5,21 +5,28 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, RotateCcw, Save, Flame, User, AlertTriangle, Shield, Check, Plus, Minus, Users, Undo2, Trash2 } from 'lucide-react';
-import { Player, LiveMatchState, LivePlayerState, Match, PositionType, ShotEvent, GOAL_TYPES, GoalType } from '../types';
+import { Player, LiveMatchState, LivePlayerState, Match, PositionType, ShotEvent, RotationEvent, GOAL_TYPES, GoalType } from '../types';
 import { exportMatchToPDF } from '../utils/pdfGenerator';
+import { getDisambiguatedPlayerLabel } from '../utils/lineupAnalytics';
 
 interface LiveTrackerProps {
   players: Player[];
   onSaveMatch: (match: Omit<Match, 'id'>) => void;
   initialLiveState?: LiveMatchState | null;
   onSaveLiveDraft?: (state: LiveMatchState) => void;
+  activeTeamId?: string;
+  activeSeasonId?: string;
+  activeTeamName?: string;
 }
 
 export default function LiveTracker({
   players,
   onSaveMatch,
   initialLiveState,
-  onSaveLiveDraft
+  onSaveLiveDraft,
+  activeTeamId,
+  activeSeasonId,
+  activeTeamName
 }: LiveTrackerProps) {
   
   // Create state initializer
@@ -72,7 +79,10 @@ export default function LiveTracker({
       localTimeout2ndHalfCalled: false,
       rivalTimeout1stHalfCalled: false,
       rivalTimeout2ndHalfCalled: false,
-      penaltyTimers: []
+      penaltyTimers: [],
+      teamId: activeTeamId,
+      seasonId: activeSeasonId,
+      rotationEvents: []
     };
   };
 
@@ -114,6 +124,9 @@ export default function LiveTracker({
       cloned.rivalTimeout1stHalfCalled = cloned.rivalTimeout1stHalfCalled ?? false;
       cloned.rivalTimeout2ndHalfCalled = cloned.rivalTimeout2ndHalfCalled ?? false;
       cloned.penaltyTimers = cloned.penaltyTimers || [];
+      cloned.teamId = cloned.teamId || activeTeamId;
+      cloned.seasonId = cloned.seasonId || activeSeasonId;
+      cloned.rotationEvents = cloned.rotationEvents || [];
 
       players.forEach(p => {
         if (!cloned.playersState[p.id]) {
@@ -797,16 +810,30 @@ export default function LiveTracker({
         };
       });
 
+      const initSecs = (prev.periodDurationMinutes ?? 20) * 60;
+      const startIds = prev.titulares.filter(Boolean);
+      const nowTs = Date.now();
+      const initialRot: RotationEvent = {
+        id: `rot-${nowTs}-h1`,
+        half: 1,
+        timeString: displayChronometer(initSecs),
+        secondsRemaining: initSecs,
+        type: 'initial_lineup',
+        onCourtIds: startIds,
+        timestamp: nowTs
+      };
+
       return {
         ...prev,
         suplentes: cleanSuplentes,
         playersState: updatedPlayers,
         isPreMatch: false,
-        overallSeconds: (prev.periodDurationMinutes ?? 20) * 60,
+        overallSeconds: initSecs,
         half: 1,
         localFouls1stHalf: 0,
         rivalFouls1stHalf: 0,
-        shotsEvents: []
+        shotsEvents: [],
+        rotationEvents: [initialRot]
       };
     });
 
@@ -827,6 +854,18 @@ export default function LiveTracker({
     const newAttackDir = matchState.attackDirection === 'izquierda' ? 'derecha' : 'izquierda';
 
     setMatchState(prev => {
+      const nowTs = Date.now();
+      const currentOnCourt1st = Object.keys(prev.playersState).filter(pid => prev.playersState[pid]?.isOnCourt);
+      const endHalf1Event: RotationEvent = {
+        id: `rot-${nowTs}-end1`,
+        half: 1,
+        timeString: displayChronometer(prev.overallSeconds),
+        secondsRemaining: prev.overallSeconds,
+        type: 'half_end',
+        onCourtIds: currentOnCourt1st,
+        timestamp: nowTs
+      };
+
       const updatedPlayersState = { ...prev.playersState };
       
       // All players in the match get updated isOnCourt based on whether they are in the selectedStarters list
@@ -839,6 +878,18 @@ export default function LiveTracker({
           isOnCourt: selectedStarters.includes(pId) && !updatedPlayersState[pId].redCard
         };
       });
+
+      const startHalf2Ids = selectedStarters.filter(id => id && !updatedPlayersState[id]?.redCard);
+      const startHalf2Secs = durationMin * 60;
+      const startHalf2Event: RotationEvent = {
+        id: `rot-${nowTs + 1}-h2`,
+        half: 2,
+        timeString: displayChronometer(startHalf2Secs),
+        secondsRemaining: startHalf2Secs,
+        type: 'initial_lineup',
+        onCourtIds: startHalf2Ids,
+        timestamp: nowTs + 1
+      };
 
       // Find if we have a goalkeeper in the selected starters
       let newGKId = '';
@@ -863,8 +914,9 @@ export default function LiveTracker({
         attackDirection: newAttackDir,
         titulares: selectedStarters,
         suplentes: updatedSuplentes,
-        overallSeconds: durationMin * 60,
-        playersState: updatedPlayersState
+        overallSeconds: startHalf2Secs,
+        playersState: updatedPlayersState,
+        rotationEvents: [...(prev.rotationEvents || []), endHalf1Event, startHalf2Event]
       };
     });
 
@@ -917,18 +969,34 @@ export default function LiveTracker({
           } else if (updatedTitulares.length < 5 && !updatedTitulares.includes(id)) {
             updatedTitulares.push(id);
           }
+
+          const updatedPlayersState = {
+            ...prev.playersState,
+            [id]: {
+              ...prev.playersState[id],
+              isOnCourt: true,
+              currentShiftSeconds: 0
+            }
+          };
+          const nextOnCourtIds = Object.keys(updatedPlayersState).filter(pid => updatedPlayersState[pid]?.isOnCourt);
+          const nowTs = Date.now();
+          const enterEvent: RotationEvent = {
+            id: `rot-${nowTs}-ent`,
+            half: prev.half,
+            timeString: displayChronometer(prev.overallSeconds),
+            secondsRemaining: prev.overallSeconds,
+            type: 'enter',
+            inPlayerId: id,
+            onCourtIds: nextOnCourtIds,
+            timestamp: nowTs
+          };
+
           return {
             ...prev,
             titulares: updatedTitulares,
             suplentes: updatedSuplentes,
-            playersState: {
-              ...prev.playersState,
-              [id]: {
-                ...prev.playersState[id],
-                isOnCourt: true,
-                currentShiftSeconds: 0
-              }
-            }
+            playersState: updatedPlayersState,
+            rotationEvents: [...(prev.rotationEvents || []), enterEvent]
           };
         });
       }
@@ -978,11 +1046,26 @@ export default function LiveTracker({
         updatedSuplentes.push(exitingPlayerId);
       }
 
+      const nextOnCourtIds = Object.keys(updated).filter(pid => updated[pid]?.isOnCourt);
+      const nowTs = Date.now();
+      const subEvent: RotationEvent = {
+        id: `rot-${nowTs}-sub`,
+        half: prev.half,
+        timeString: displayChronometer(prev.overallSeconds),
+        secondsRemaining: prev.overallSeconds,
+        type: 'substitution',
+        inPlayerId: subInPlayerId,
+        outPlayerId: exitingPlayerId,
+        onCourtIds: nextOnCourtIds,
+        timestamp: nowTs
+      };
+
       return {
         ...prev,
         titulares: updatedTitulares,
         suplentes: updatedSuplentes,
-        playersState: updated
+        playersState: updated,
+        rotationEvents: [...(prev.rotationEvents || []), subEvent]
       };
     });
 
@@ -998,23 +1081,25 @@ export default function LiveTracker({
   ) => {
     if (!clickCoords) return;
 
-    const timeString = displayChronometer(matchState.overallSeconds);
+    const coords = clickCoords;
     const pObj = localPlayerId ? players.find(p => p.id === localPlayerId) : undefined;
 
-    const event: ShotEvent = {
-      id: `s-${Date.now()}`,
-      x: clickCoords.x,
-      y: clickCoords.y,
-      team,
-      type,
-      goalType,
-      playerId: localPlayerId,
-      playerNumber: pObj?.number,
-      timeString,
-      half: matchState.half
-    };
-
     setMatchState(prev => {
+      const currentOnCourtIds = Object.keys(prev.playersState).filter(pid => prev.playersState[pid]?.isOnCourt);
+      const event: ShotEvent = {
+        id: `s-${Date.now()}`,
+        x: coords.x,
+        y: coords.y,
+        team,
+        type,
+        goalType,
+        playerId: localPlayerId,
+        playerNumber: pObj?.number,
+        timeString: displayChronometer(prev.overallSeconds),
+        half: prev.half,
+        onCourtIds: currentOnCourtIds
+      };
+
       const updatedStats = { ...prev.playersState };
       let newGoalsFor = prev.goalsFor;
       let newGoalsAgainst = prev.goalsAgainst;
@@ -1189,18 +1274,40 @@ export default function LiveTracker({
         nextPenaltyTimers = nextPenaltyTimers.filter(pt => pt.playerId !== pId);
       }
 
+      const nextPlayersState = {
+        ...prev.playersState,
+        [pId]: {
+          ...ps,
+          yellows: val,
+          redCard: isRed,
+          isOnCourt: isRed ? false : ps.isOnCourt
+        }
+      };
+
+      let nextRotationEvents = prev.rotationEvents || [];
+      if (isNewlyRed && wasOnCourt) {
+        const nextOnCourtIds = Object.keys(nextPlayersState).filter(pid => nextPlayersState[pid]?.isOnCourt);
+        const nowTs = Date.now();
+        nextRotationEvents = [
+          ...nextRotationEvents,
+          {
+            id: `rot-${nowTs}-red`,
+            half: prev.half,
+            timeString: displayChronometer(prev.overallSeconds),
+            secondsRemaining: prev.overallSeconds,
+            type: 'red_card',
+            outPlayerId: pId,
+            onCourtIds: nextOnCourtIds,
+            timestamp: nowTs
+          }
+        ];
+      }
+
       return {
         ...prev,
         penaltyTimers: nextPenaltyTimers,
-        playersState: {
-          ...prev.playersState,
-          [pId]: {
-            ...ps,
-            yellows: val,
-            redCard: isRed,
-            isOnCourt: isRed ? false : ps.isOnCourt
-          }
-        }
+        playersState: nextPlayersState,
+        rotationEvents: nextRotationEvents
       };
     });
   };
@@ -1228,17 +1335,39 @@ export default function LiveTracker({
         nextPenaltyTimers = nextPenaltyTimers.filter(pt => pt.playerId !== pId);
       }
 
+      const nextPlayersState = {
+        ...prev.playersState,
+        [pId]: {
+          ...ps,
+          redCard: isRedNow,
+          isOnCourt: isRedNow ? false : ps.isOnCourt
+        }
+      };
+
+      let nextRotationEvents = prev.rotationEvents || [];
+      if (isRedNow && ps.isOnCourt && !ps.redCard) {
+        const nextOnCourtIds = Object.keys(nextPlayersState).filter(pid => nextPlayersState[pid]?.isOnCourt);
+        const nowTs = Date.now();
+        nextRotationEvents = [
+          ...nextRotationEvents,
+          {
+            id: `rot-${nowTs}-red`,
+            half: prev.half,
+            timeString: displayChronometer(prev.overallSeconds),
+            secondsRemaining: prev.overallSeconds,
+            type: 'red_card',
+            outPlayerId: pId,
+            onCourtIds: nextOnCourtIds,
+            timestamp: nowTs
+          }
+        ];
+      }
+
       return {
         ...prev,
         penaltyTimers: nextPenaltyTimers,
-        playersState: {
-          ...prev.playersState,
-          [pId]: {
-            ...ps,
-            redCard: isRedNow,
-            isOnCourt: isRedNow ? false : ps.isOnCourt
-          }
-        }
+        playersState: nextPlayersState,
+        rotationEvents: nextRotationEvents
       };
     });
   };
@@ -1307,6 +1436,21 @@ export default function LiveTracker({
       winDrawLoss = 'L';
     }
 
+    const endTs = Date.now();
+    const currentEndOnCourt = Object.keys(matchState.playersState).filter(
+      pid => matchState.playersState[pid]?.isOnCourt
+    );
+    const endMatchRotEvent: RotationEvent = {
+      id: `rot-${endTs}-end${matchState.half}`,
+      half: matchState.half,
+      timeString: displayChronometer(matchState.overallSeconds),
+      secondsRemaining: matchState.overallSeconds,
+      type: 'half_end',
+      onCourtIds: currentEndOnCourt,
+      timestamp: endTs
+    };
+    const finalRotationEvents = [...(matchState.rotationEvents || []), endMatchRotEvent];
+
     const outputMatch: Omit<Match, 'id'> = {
       rival: matchState.rival.trim(),
       date: matchState.date,
@@ -1326,11 +1470,15 @@ export default function LiveTracker({
       rivalFouls2ndHalf: matchState.rivalFouls2ndHalf,
       shotsEvents: matchState.shotsEvents,
       titulares: matchState.titulares,
-      suplentes: matchState.suplentes
+      suplentes: matchState.suplentes,
+      teamId: activeTeamId,
+      seasonId: activeSeasonId,
+      periodDurationMinutes: matchState.periodDurationMinutes ?? 20,
+      rotationEvents: finalRotationEvents
     };
 
     // Automatically export the tactical PDF with full field drawing and individual minutes
-    exportMatchToPDF({ ...outputMatch, id: 'temp-id' }, players);
+    exportMatchToPDF({ ...outputMatch, id: 'temp-id' }, players, activeTeamName);
 
     onSaveMatch(outputMatch);
     setMatchState(createDefaultLiveState());
@@ -1344,6 +1492,7 @@ export default function LiveTracker({
   const isTalaveraAttackingRight = matchState.attackDirection !== 'izquierda';
 
   const convocatedIds = [...new Set([...(matchState.titulares || []), ...(matchState.suplentes || [])])].filter(Boolean);
+  const convocatedRoster = players.filter(p => convocatedIds.includes(p.id));
   const onCourtPlayers = players
     .filter(p => p.isActive && convocatedIds.includes(p.id) && matchState.playersState[p.id]?.isOnCourt)
     .sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
@@ -1698,7 +1847,7 @@ export default function LiveTracker({
                         const isChosenElsewhere = matchState.titulares.includes(p.id) && matchState.titulares[idx] !== p.id;
                         return (
                           <option key={p.id} value={p.id} disabled={isChosenElsewhere}>
-                            #{p.number} - {p.alias || p.name} ({p.position === 'Portero/a' ? (p.gender === 'M' ? 'Portero' : 'Portera') : p.position})
+                            #{p.number} - {getDisambiguatedPlayerLabel(p, availablePlayers, false)} ({p.position === 'Portero/a' ? (p.gender === 'M' ? 'Portero' : 'Portera') : p.position})
                           </option>
                         );
                       })}
@@ -1757,7 +1906,7 @@ export default function LiveTracker({
                     )}
                     <div className="flex flex-col text-left leading-none shrink-0">
                       <span className="text-[9px] text-slate-400 font-mono">#{p.number}</span>
-                      <span className="text-xs">{p.alias || p.name}</span>
+                      <span className="text-xs">{getDisambiguatedPlayerLabel(p, availablePlayers, false)}</span>
                     </div>
                     {isStarterOnlyNoSub && <span className="text-[8px] uppercase font-normal text-slate-400">(Titular)</span>}
                     {isSuplente && <span className="text-[9px] rounded-full bg-yellow-600/30 px-1 hover:bg-yellow-600/40 text-blue-950">✕</span>}
@@ -2224,7 +2373,7 @@ export default function LiveTracker({
                           <span className="text-rose-600 font-extrabold">Anotado por: RIVAL</span>
                         ) : (
                           <span className="text-[#004183] font-extrabold">
-                            Anotado por: #{players.find(pl => pl.id === selectedSubjectId)?.number} {players.find(pl => pl.id === selectedSubjectId)?.alias || players.find(pl => pl.id === selectedSubjectId)?.name}
+                            Anotado por: {(() => { const sp = players.find(pl => pl.id === selectedSubjectId); return sp ? getDisambiguatedPlayerLabel(sp, convocatedRoster, true) : ''; })()}
                           </span>
                         )}
                       </span>
@@ -2286,11 +2435,11 @@ export default function LiveTracker({
                                   ? 'border-[#004183] bg-blue-50/50 ring-2 ring-[#004183]/15'
                                   : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50/70'
                               }`}
-                              title={`${p.alias || p.name} (#${p.number})`}
+                              title={getDisambiguatedPlayerLabel(p, convocatedRoster, true)}
                             >
                               <div className="w-7 h-7 rounded-full overflow-hidden relative shrink-0 bg-slate-100 border border-slate-200">
                                 {p.photo ? (
-                                  <img referrerPolicy="no-referrer" src={p.photo} alt={p.alias || p.name} className="w-full h-full object-cover" />
+                                  <img referrerPolicy="no-referrer" src={p.photo} alt={getDisambiguatedPlayerLabel(p, convocatedRoster, false)} className="w-full h-full object-cover" />
                                 ) : (
                                   <div className="w-full h-full bg-[#004183] text-[#FFD700] font-black text-[8px] flex items-center justify-center">
                                     {(p.alias || p.name).substring(0, 2)}
@@ -2478,8 +2627,8 @@ export default function LiveTracker({
                       </div>
 
                       <div className="min-w-0 max-w-[80px] sm:max-w-[100px]">
-                        <p className="font-extrabold text-slate-700 text-[10px] truncate leading-tight" title={p.alias || p.name}>
-                          {p.alias || p.name}
+                        <p className="font-extrabold text-slate-700 text-[10px] truncate leading-tight" title={getDisambiguatedPlayerLabel(p, convocatedRoster, false)}>
+                          {getDisambiguatedPlayerLabel(p, convocatedRoster, false)}
                         </p>
                         <span className="text-[7.5px] text-slate-400 uppercase leading-none font-black block truncate">
                           {p.position === 'Portero/a' ? (p.gender === 'M' ? 'Portero' : 'Portera') : p.position} {isPortera && '🧤'}
@@ -2663,8 +2812,8 @@ export default function LiveTracker({
 
                       {/* Player Name / Alias & Position */}
                       <div className="min-w-0 flex-1 text-left">
-                        <p className="font-bold text-slate-700 text-[9.5px] leading-tight truncate" title={p.alias || p.name}>
-                          {p.alias || p.name}
+                        <p className="font-bold text-slate-700 text-[9.5px] leading-tight truncate" title={getDisambiguatedPlayerLabel(p, convocatedRoster, false)}>
+                          {getDisambiguatedPlayerLabel(p, convocatedRoster, false)}
                         </p>
                         <p className="text-[7px] text-slate-400 uppercase font-black tracking-tight truncate">
                           {p.position === 'Portero/a' ? (p.gender === 'M' ? 'Portero' : 'Portera') : p.position}
@@ -2688,9 +2837,9 @@ export default function LiveTracker({
                                   handleExecuteSubstitution(oc.id);
                                 }}
                                 className="w-full text-left py-0.5 px-1 bg-slate-50 hover:bg-blue-600 hover:text-white rounded border border-slate-200 text-[7.5px] font-bold transition truncate flex justify-between items-center cursor-pointer"
-                                title={`Sustituir a #${oc.number} ${oc.alias || oc.name}`}
+                                title={`Sustituir a ${getDisambiguatedPlayerLabel(oc, convocatedRoster, true)}`}
                               >
-                                <span className="truncate mr-1">#{oc.number} {oc.alias || oc.name}</span>
+                                <span className="truncate mr-1">{getDisambiguatedPlayerLabel(oc, convocatedRoster, true)}</span>
                                 <span className="shrink-0 text-[6.5px] opacity-75 font-mono">
                                   {displayChronometer(shiftSecs)} (Tot {displayChronometer(ocState?.secondsPlayed || 0)})
                                 </span>
@@ -2941,7 +3090,7 @@ export default function LiveTracker({
             let scorerName = '';
             if (s.team === 'local') {
               const p = players.find(pObj => pObj.id === s.playerId);
-              scorerName = p ? (p.alias || p.name) : `Jugadora #${s.playerNumber || ''}`;
+              scorerName = p ? getDisambiguatedPlayerLabel(p, convocatedPlayers, false) : `Jugadora #${s.playerNumber || ''}`;
             } else {
               scorerName = `Rival`;
             }
@@ -3076,8 +3225,8 @@ export default function LiveTracker({
                               <span className="w-5 h-5 rounded-full bg-[#004183] text-[#FFD700] flex items-center justify-center font-black text-[9px] font-mono shrink-0">
                                 {p.number}
                               </span>
-                              <span className="font-extrabold text-[#004183] text-[11px] truncate max-w-[120px]" title={p.alias || p.name}>
-                                {p.alias || p.name}
+                              <span className="font-extrabold text-[#004183] text-[11px] truncate max-w-[120px]" title={getDisambiguatedPlayerLabel(p, convocatedPlayers, false)}>
+                                {getDisambiguatedPlayerLabel(p, convocatedPlayers, false)}
                               </span>
                               <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tight bg-slate-100 px-1 py-0.2 rounded shrink-0">
                                 {p.position === 'Portero/a' ? (p.gender === 'M' ? 'Portero' : 'Portera') : p.position}
@@ -3158,7 +3307,7 @@ export default function LiveTracker({
                             const isTakenElsewhere = secondHalfStarters.includes(p.id) && secondHalfStarters[idx] !== p.id;
                             return (
                               <option key={p.id} value={p.id} disabled={isTakenElsewhere}>
-                                #{p.number} - {p.alias || p.name}
+                                #{p.number} - {getDisambiguatedPlayerLabel(p, convocatedPlayers, false)}
                               </option>
                             );
                           })}

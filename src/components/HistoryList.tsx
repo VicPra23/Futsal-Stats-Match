@@ -21,12 +21,19 @@ import {
 } from "lucide-react";
 import { Match, Player } from "../types";
 import { exportMatchToPDF } from "../utils/pdfGenerator";
+import {
+  computeQuintetStats,
+  getDisplayRotationEvents,
+  getDisambiguatedPlayerLabel,
+  formatSecondsMMSS,
+} from "../utils/lineupAnalytics";
 
 interface HistoryListProps {
   matches: Match[];
   players: Player[];
   onDeleteMatch?: (id: string) => void;
   onUpdateMatchComment?: (id: string, comment: string) => void;
+  activeTeamName?: string;
 }
 
 // Season calculator helper
@@ -49,6 +56,7 @@ export default function HistoryList({
   players,
   onDeleteMatch,
   onUpdateMatchComment,
+  activeTeamName,
 }: HistoryListProps) {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
@@ -58,6 +66,9 @@ export default function HistoryList({
   const [savedNotificationId, setSavedNotificationId] = useState<string | null>(
     null,
   );
+  const [rotationViewTab, setRotationViewTab] = useState<
+    Record<string, "quintets" | "timeline">
+  >({});
   const [searchQuery, setSearchQuery] = useState("");
   const [outcomeFilter, setOutcomeFilter] = useState<"ALL" | "W" | "D" | "L">(
     "ALL",
@@ -174,10 +185,11 @@ export default function HistoryList({
 
   const handleExportPDF = (e: React.MouseEvent, match: Match) => {
     e.stopPropagation(); // Avoid expanding/collapsing card when clicking button
+    const teamPrefix = activeTeamName && activeTeamName.trim() ? activeTeamName.trim() : "FS Talavera";
     const displayName =
       match.matchType === "amistoso"
-        ? `FS Talavera Amistoso vs ${match.rival}`
-        : `FS Talavera Jornada ${match.jornada} vs ${match.rival}`;
+        ? `${teamPrefix} Amistoso vs ${match.rival}`
+        : `${teamPrefix} Jornada ${match.jornada} vs ${match.rival}`;
 
     setPdfNotification({
       show: true,
@@ -189,7 +201,7 @@ export default function HistoryList({
     }, 7500);
 
     try {
-      exportMatchToPDF(match, players);
+      exportMatchToPDF(match, players, activeTeamName);
     } catch (err) {
       console.error("Error generating PDF report:", err);
     }
@@ -799,6 +811,269 @@ export default function HistoryList({
                           );
                         })()}
                       </div>
+                    </div>
+
+                    {/* ROTACIONES Y QUINTETOS EN PISTA */}
+                    <div
+                      className="mt-6 border-t border-slate-200/60 pt-5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {(() => {
+                        const hasRotationData = Boolean(
+                          match.rotationEvents && match.rotationEvents.length > 0,
+                        );
+                        const playerMap = new Map(players.map((p) => [p.id, p]));
+                        const rotPoolIds = new Set<string>([
+                          ...(match.titulares || []),
+                          ...(match.suplentes || []),
+                          ...(match.rotationEvents || []).flatMap((ev) => [
+                            ...ev.onCourtIds,
+                            ...(ev.inPlayerId ? [ev.inPlayerId] : []),
+                            ...(ev.outPlayerId ? [ev.outPlayerId] : []),
+                          ]),
+                        ]);
+                        const matchPlayerPool = Array.from(rotPoolIds)
+                          .map((id) => playerMap.get(id))
+                          .filter((p): p is Player => Boolean(p));
+                        const labelPool =
+                          matchPlayerPool.length > 0 ? matchPlayerPool : players;
+
+                        const formatChipLabel = (pid?: string) => {
+                          if (!pid) return "Jugador/a";
+                          const p = playerMap.get(pid);
+                          return p
+                            ? getDisambiguatedPlayerLabel(p, labelPool, true)
+                            : `#${pid}`;
+                        };
+
+                        if (!hasRotationData) {
+                          return (
+                            <div className="bg-slate-50 border border-slate-200/70 rounded-xl px-3.5 py-2.5 text-xs text-slate-500">
+                              <span className="font-bold text-slate-600">
+                                🔄 Rotaciones y Quintetos en Pista:
+                              </span>{" "}
+                              El registro horario de cambios y rendimiento por
+                              quintetos estará disponible para los partidos
+                              guardados a partir de esta actualización.
+                            </div>
+                          );
+                        }
+
+                        const quintets = computeQuintetStats(match, players);
+                        const rotations = getDisplayRotationEvents(match);
+                        const activeRotTab =
+                          rotationViewTab[match.id] || "quintets";
+                        const fmtT = (i: number, o: number, t: number) =>
+                          `T:${String(i).padStart(2, "0")}/${String(o).padStart(2, "0")}/${String(t).padStart(2, "0")}`;
+
+                        return (
+                          <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                              <h4 className="text-xs font-extrabold text-[#004183] uppercase tracking-wider flex items-center gap-1.5">
+                                <span>🔄 Rotaciones y Quintetos en Pista</span>
+                              </h4>
+                              <div className="inline-flex bg-slate-100 p-0.5 rounded-xl border border-slate-200/70 self-start sm:self-auto">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRotationViewTab((prev) => ({
+                                      ...prev,
+                                      [match.id]: "quintets",
+                                    }))
+                                  }
+                                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                                    activeRotTab === "quintets"
+                                      ? "bg-[#004183] text-white shadow-xs"
+                                      : "text-slate-600 hover:text-slate-900"
+                                  }`}
+                                >
+                                  Rendimiento por Quintetos ({quintets.length})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRotationViewTab((prev) => ({
+                                      ...prev,
+                                      [match.id]: "timeline",
+                                    }))
+                                  }
+                                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                                    activeRotTab === "timeline"
+                                      ? "bg-[#004183] text-white shadow-xs"
+                                      : "text-slate-600 hover:text-slate-900"
+                                  }`}
+                                >
+                                  Cronología de Cambios ({rotations.length})
+                                </button>
+                              </div>
+                            </div>
+
+                            {activeRotTab === "quintets" ? (
+                              quintets.length === 0 ? (
+                                <p className="text-xs text-slate-400 italic py-2">
+                                  No hay tramos de quintetos registrados.
+                                </p>
+                              ) : (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-left border-collapse text-xs">
+                                    <thead>
+                                      <tr className="border-b border-slate-200 text-[10px] uppercase tracking-wider text-slate-500 bg-slate-50/70">
+                                        <th className="py-2 px-2.5 font-extrabold">
+                                          Quinteto en Pista
+                                        </th>
+                                        <th className="py-2 px-2 font-extrabold text-center whitespace-nowrap">
+                                          Tiempo
+                                        </th>
+                                        <th className="py-2 px-2 font-extrabold text-center whitespace-nowrap">
+                                          Goles (F-C)
+                                        </th>
+                                        <th className="py-2 px-2 font-extrabold text-center whitespace-nowrap">
+                                          +/-
+                                        </th>
+                                        <th className="py-2 px-2 font-extrabold text-center whitespace-nowrap">
+                                          Tiros LCL
+                                        </th>
+                                        <th className="py-2 px-2 font-extrabold text-center whitespace-nowrap">
+                                          Tiros RVL
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                      {quintets.map((q) => (
+                                        <tr
+                                          key={q.key}
+                                          className="hover:bg-slate-50/70 transition"
+                                        >
+                                          <td className="py-2 px-2.5">
+                                            <div className="flex flex-wrap gap-1">
+                                              {q.playerIds.map((pid) => (
+                                                <span
+                                                  key={pid}
+                                                  className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-[#004183] border border-blue-100 font-bold text-[10.5px]"
+                                                >
+                                                  {formatChipLabel(pid)}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </td>
+                                          <td className="py-2 px-2 text-center font-mono font-bold text-slate-700 whitespace-nowrap">
+                                            {formatSecondsMMSS(
+                                              q.secondsTogether,
+                                            )}
+                                          </td>
+                                          <td className="py-2 px-2 text-center font-bold text-slate-800 whitespace-nowrap">
+                                            {q.goalsFor} - {q.goalsAgainst}
+                                          </td>
+                                          <td className="py-2 px-2 text-center whitespace-nowrap">
+                                            <span
+                                              className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-black font-mono ${
+                                                q.plusMinus > 0
+                                                  ? "bg-emerald-100 text-emerald-800"
+                                                  : q.plusMinus < 0
+                                                    ? "bg-rose-100 text-rose-800"
+                                                    : "bg-slate-100 text-slate-600"
+                                              }`}
+                                            >
+                                              {q.plusMinus > 0
+                                                ? `+${q.plusMinus}`
+                                                : q.plusMinus}
+                                            </span>
+                                          </td>
+                                          <td className="py-2 px-2 text-center font-mono text-[11px] font-bold text-blue-900 whitespace-nowrap">
+                                            {fmtT(
+                                              q.localShotsIn,
+                                              q.localShotsOut,
+                                              q.localShotsTotal,
+                                            )}
+                                          </td>
+                                          <td className="py-2 px-2 text-center font-mono text-[11px] font-bold text-rose-700 whitespace-nowrap">
+                                            {fmtT(
+                                              q.rivalShotsIn,
+                                              q.rivalShotsOut,
+                                              q.rivalShotsTotal,
+                                            )}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {[1, 2].map((halfNum) => {
+                                  const halfEvents = rotations.filter(
+                                    (ev) => ev.half === halfNum,
+                                  );
+                                  return (
+                                    <div
+                                      key={halfNum}
+                                      className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-3 space-y-2"
+                                    >
+                                      <h5 className="text-[11px] font-black uppercase tracking-wider text-[#004183] border-b border-slate-200 pb-1.5">
+                                        {halfNum === 1 ? "1ª Parte" : "2ª Parte"}{" "}
+                                        ({halfEvents.length})
+                                      </h5>
+                                      {halfEvents.length === 0 ? (
+                                        <p className="text-[11px] text-slate-400 italic py-1">
+                                          Sin movimientos registrados en esta
+                                          parte.
+                                        </p>
+                                      ) : (
+                                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                                          {halfEvents.map((ev) => {
+                                            let actionText = "Quinteto Inicial";
+                                            let badgeClass =
+                                              "bg-blue-100 text-[#004183]";
+                                            if (ev.type === "substitution") {
+                                              actionText = `Entra ${formatChipLabel(ev.inPlayerId)} ⬅ Sale ${formatChipLabel(ev.outPlayerId)}`;
+                                              badgeClass =
+                                                "bg-amber-100 text-amber-900";
+                                            } else if (ev.type === "enter") {
+                                              actionText = `Entra ${formatChipLabel(ev.inPlayerId)}`;
+                                              badgeClass =
+                                                "bg-emerald-100 text-emerald-800";
+                                            } else if (ev.type === "red_card") {
+                                              actionText = `Expulsión (Roja) ${formatChipLabel(ev.outPlayerId)}`;
+                                              badgeClass =
+                                                "bg-rose-100 text-rose-800";
+                                            }
+                                            return (
+                                              <div
+                                                key={ev.id}
+                                                className="bg-white border border-slate-200/70 rounded-lg p-2 text-[11px] space-y-1 shadow-3xs"
+                                              >
+                                                <div className="flex items-start gap-2">
+                                                  <span className="font-mono font-black text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-white shrink-0">
+                                                    {ev.timeString}
+                                                  </span>
+                                                  <span
+                                                    className={`font-bold text-[10.5px] px-1.5 py-0.5 rounded leading-snug ${badgeClass}`}
+                                                  >
+                                                    {actionText}
+                                                  </span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 leading-snug pl-0.5">
+                                                  <span className="font-bold text-slate-600">
+                                                    En pista:
+                                                  </span>{" "}
+                                                  {ev.onCourtIds
+                                                    .map(formatChipLabel)
+                                                    .join(", ")}
+                                                </p>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* OBSERVACIONES Y COMENTARIOS DEL PARTIDO */}

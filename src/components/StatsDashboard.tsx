@@ -17,6 +17,7 @@ import {
 interface StatsDashboardProps {
   matches: Match[];
   players: Player[];
+  activeTeamName?: string;
 }
 
 // Colors for Pie Chart and Bar Charts
@@ -122,7 +123,7 @@ export function getMatchSeason(dateStr: string): string {
   }
 }
 
-export default function StatsDashboard({ matches, players }: StatsDashboardProps) {
+export default function StatsDashboard({ matches, players, activeTeamName }: StatsDashboardProps) {
   // Extract all unique seasons from existing matches
   const uniqueSeasons = Array.from(new Set(matches.map(m => getMatchSeason(m.date))));
   
@@ -155,7 +156,7 @@ export default function StatsDashboard({ matches, players }: StatsDashboardProps
       name: `Reporte de Temporada - Recopilación (${seasonLabel} - ${typeLabel}${venueLabel})`
     });
     setTimeout(() => setPdfNotification(null), 7500);
-    exportTeamReportToPDF(filteredMatches, players, selectedSeason, matchTypeFilter, venueFilter);
+    exportTeamReportToPDF(filteredMatches, players, selectedSeason, matchTypeFilter, venueFilter, activeTeamName);
   };
 
   const handleExportComparisons = () => {

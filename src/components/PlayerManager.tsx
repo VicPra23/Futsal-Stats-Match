@@ -20,6 +20,7 @@ interface PlayerManagerProps {
   onAddPlayer: (player: Omit<Player, 'id' | 'isActive'>) => void;
   onEditPlayer: (player: Player) => void;
   onDeletePlayer: (id: string) => void;
+  activeTeamName?: string;
 }
 
 // Colors for Pie Chart
@@ -78,7 +79,8 @@ export default function PlayerManager({
   matches = [],
   onAddPlayer,
   onEditPlayer,
-  onDeletePlayer
+  onDeletePlayer,
+  activeTeamName
 }: PlayerManagerProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -102,6 +104,8 @@ export default function PlayerManager({
   const [dominantLeg, setDominantLeg] = useState<'Diestra' | 'Zurda' | 'Ambidiestra' | ''>('');
   const [photo, setPhoto] = useState<string>('');
   const [gender, setGender] = useState<'M' | 'F'>('F'); // Default to female
+  const [captain, setCaptain] = useState<boolean>(false);
+  const [status, setStatus] = useState<'activo' | 'baja' | 'lesionado' | 'sancionado'>('activo');
   const [dragActive, setDragActive] = useState(false);
   
   // Zoom & Translation Offsets for Crop Tool
@@ -122,6 +126,8 @@ export default function PlayerManager({
   const [editDominantLeg, setEditDominantLeg] = useState<'Diestra' | 'Zurda' | 'Ambidiestra'>('Diestra');
   const [editPhoto, setEditPhoto] = useState<string>('');
   const [editGender, setEditGender] = useState<'M' | 'F'>('F');
+  const [editCaptain, setEditCaptain] = useState<boolean>(false);
+  const [editStatus, setEditStatus] = useState<'activo' | 'baja' | 'lesionado' | 'sancionado'>('activo');
   const [editDragActive, setEditDragActive] = useState(false);
 
   // Edit Zoom & Translation Offsets
@@ -425,7 +431,9 @@ export default function PlayerManager({
       birthDate: birthDate || '',
       dominantLeg: dominantLeg as 'Diestra' | 'Zurda' | 'Ambidiestra',
       photo: photo || undefined,
-      gender: gender
+      gender: gender,
+      captain,
+      status
     });
 
     // Reset Form State
@@ -437,6 +445,8 @@ export default function PlayerManager({
     setDominantLeg('');
     setPhoto('');
     setGender('F');
+    setCaptain(false);
+    setStatus('activo');
     setRawPhoto('');
     setZoom(1.2);
     setOffsetY(-15);
@@ -459,6 +469,8 @@ export default function PlayerManager({
     setEditOffsetY(0);
     setEditOffsetX(0);
     setEditGender(player.gender || 'F');
+    setEditCaptain(Boolean(player.captain));
+    setEditStatus(player.status || 'activo');
     setError('');
   };
 
@@ -482,8 +494,9 @@ export default function PlayerManager({
     }
 
     const finalAlias = editAlias.trim() ? editAlias.trim() : editName.trim().split(' ')[0];
-
-    onEditPlayer({
+    const existing = players.find(p => p.id === id);
+    const updatedPlayer: Player = {
+      ...(existing || {}),
       id,
       name: editName.trim(),
       alias: finalAlias,
@@ -491,10 +504,14 @@ export default function PlayerManager({
       position: editPosition,
       birthDate: editBirthDate || '',
       dominantLeg: editDominantLeg || 'Diestra',
-      isActive: true,
+      isActive: existing ? existing.isActive : true,
       photo: editPhoto || undefined,
-      gender: editGender
-    });
+      gender: editGender,
+      captain: editCaptain,
+      status: editStatus
+    };
+
+    onEditPlayer(updatedPlayer);
 
     setEditingId(null);
     setEditPhoto('');
@@ -506,18 +523,7 @@ export default function PlayerManager({
     
     // Update selected details if currently viewing this player
     if (selectedPlayer?.id === id) {
-      setSelectedPlayer({
-        id,
-        name: editName.trim(),
-        alias: finalAlias,
-        number: editNumber.trim(),
-        position: editPosition,
-        birthDate: editBirthDate || '',
-        dominantLeg: editDominantLeg || 'Diestra',
-        isActive: true,
-        photo: editPhoto || undefined,
-        gender: editGender
-      });
+      setSelectedPlayer(updatedPlayer);
     }
   };
 
@@ -904,6 +910,43 @@ export default function PlayerManager({
                     }`}
                   >
                     <span>Hombre ♂</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* INPUT 9: Estado y Capitanía */}
+              <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                    9. Estado Deportivo
+                  </label>
+                  <select
+                    value={status}
+                    onChange={e => setStatus(e.target.value as any)}
+                    className="w-full bg-slate-50 focus:bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#004183] transition cursor-pointer font-semibold"
+                  >
+                    <option value="activo">Activo</option>
+                    <option value="lesionado">Lesionado/a</option>
+                    <option value="sancionado">Sancionado/a</option>
+                    <option value="baja">Baja</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                    10. Capitanía
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setCaptain(prev => !prev)}
+                    className={`w-full py-2 px-3 rounded-xl border text-xs font-black transition cursor-pointer flex items-center justify-center gap-2 ${
+                      captain
+                        ? 'bg-amber-50 border-amber-400 text-amber-800 ring-2 ring-amber-100'
+                        : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>©</span>
+                    <span>{captain ? 'Capitán/a del equipo' : 'Marcar como Capitán/a'}</span>
                   </button>
                 </div>
               </div>
@@ -1418,6 +1461,38 @@ export default function PlayerManager({
                                     </button>
                                   </div>
                                 </div>
+
+                                {/* Estado y Capitanía */}
+                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                  <div>
+                                    <label className="block text-[9px] font-bold uppercase text-slate-400">Estado</label>
+                                    <select
+                                      value={editStatus}
+                                      onChange={e => setEditStatus(e.target.value as any)}
+                                      className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[10.5px] w-full cursor-pointer font-semibold mt-0.5"
+                                    >
+                                      <option value="activo">Activo</option>
+                                      <option value="lesionado">Lesionado/a</option>
+                                      <option value="sancionado">Sancionado/a</option>
+                                      <option value="baja">Baja</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[9px] font-bold uppercase text-slate-400">Capitanía</label>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditCaptain(prev => !prev)}
+                                      className={`mt-0.5 w-full py-1 px-2 rounded-lg border text-[10px] font-black transition cursor-pointer flex items-center justify-center gap-1 ${
+                                        editCaptain
+                                          ? 'bg-amber-50 border-amber-400 text-amber-800'
+                                          : 'bg-slate-50 border-slate-200 text-slate-500'
+                                      }`}
+                                    >
+                                      <span>©</span>
+                                      <span>{editCaptain ? 'Capitán/a' : 'Normal'}</span>
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
 
                               {error && (
@@ -1470,6 +1545,14 @@ export default function PlayerManager({
                                       <h4 className="font-black text-slate-800 text-xs sm:text-sm group-hover:text-[#004183] transition truncate">
                                         {player.alias || player.name}
                                       </h4>
+                                      {player.captain && (
+                                        <span
+                                          className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-800 text-[9px] font-black shrink-0"
+                                          title="Capitán/a del equipo"
+                                        >
+                                          ©
+                                        </span>
+                                      )}
                                     </div>
                                     <p className="text-[10px] text-slate-400 truncate font-semibold">{player.name}</p>
                                   </div>
@@ -1480,6 +1563,24 @@ export default function PlayerManager({
                                   <span className={`text-[7.5px] sm:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${getPositionBadgeClass(player.position)}`}>
                                     {getPlayerPositionLabel(player.position, player.gender)}
                                   </span>
+
+                                  {player.status && player.status !== 'activo' && (
+                                    <span
+                                      className={`text-[7.5px] sm:text-[9px] font-black uppercase px-1.5 py-0.5 rounded border shrink-0 ${
+                                        player.status === 'lesionado'
+                                          ? 'bg-amber-50 border-amber-300 text-amber-800'
+                                          : player.status === 'sancionado'
+                                            ? 'bg-rose-50 border-rose-300 text-rose-700'
+                                            : 'bg-slate-100 border-slate-300 text-slate-600'
+                                      }`}
+                                    >
+                                      {player.status === 'lesionado'
+                                        ? 'Lesionado'
+                                        : player.status === 'sancionado'
+                                          ? 'Sancionado'
+                                          : 'Baja'}
+                                    </span>
+                                  )}
                                   
                                   <span className={`text-[7.5px] sm:text-[9px] font-bold px-1.2 py-0.5 rounded border shrink-0 ${player.gender === 'M' ? 'bg-blue-50/60 border-blue-100 text-blue-700' : 'bg-rose-50/60 border-rose-100 text-rose-750'}`}>
                                     {player.gender === 'M' ? '♂' : '♀'}
@@ -1988,9 +2089,9 @@ export default function PlayerManager({
                 type="button"
                 onClick={() => {
                   if (pdfExportModal.mode === 'single' && pdfExportModal.player) {
-                    exportPlayerDossierToPDF([pdfExportModal.player], matches || [], pdfExportFilter);
+                    exportPlayerDossierToPDF([pdfExportModal.player], matches || [], pdfExportFilter, undefined, activeTeamName);
                   } else {
-                    exportPlayerDossierToPDF(players.filter(p => p.isActive), matches || [], pdfExportFilter);
+                    exportPlayerDossierToPDF(players.filter(p => p.isActive), matches || [], pdfExportFilter, undefined, activeTeamName);
                   }
                   setPdfExportModal(null);
                 }}
