@@ -8,6 +8,8 @@ import autoTable from 'jspdf-autotable';
 import { Match, Player, ShotEvent, PlayerPerformance, GOAL_TYPES } from '../types';
 import {
   computeQuintetStats,
+  computeSeasonQuintetStats,
+  formatRotationMovement,
   getDisplayRotationEvents,
   getShotOnCourtIds,
   getDisambiguatedPlayerLabel,
@@ -1202,15 +1204,10 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: 
 
     const rotations = getDisplayRotationEvents(match);
     const rotRows = rotations.map(ev => {
-      let movText = 'Quinteto Inicial';
-      if (ev.type === 'substitution') {
-        movText = `Entra ${formatPdfChip(ev.inPlayerId)} / Sale ${formatPdfChip(ev.outPlayerId)}`;
-      } else if (ev.type === 'enter') {
-        movText = `Entra ${formatPdfChip(ev.inPlayerId)}`;
-      } else if (ev.type === 'red_card') {
-        movText = `Expulsión ${formatPdfChip(ev.outPlayerId)}`;
-      }
-      const onCourtStr = ev.onCourtIds.map(pid => formatPdfChip(pid)).join(', ');
+      const movText = formatRotationMovement(ev, formatPdfChip, ' / ');
+      const onCourtStr = sortLineupIds(ev.onCourtIds, allPlayers)
+        .map(pid => formatPdfChip(pid))
+        .join(', ');
       return [
         `${ev.half}ª P.`,
         ev.timeString,
@@ -2134,6 +2131,122 @@ export const exportTeamReportToPDF = (
       }
     }
   });
+
+  const topSeasonQuintets = computeSeasonQuintetStats(matches, players, 5);
+  if (topSeasonQuintets.length > 0) {
+    let qStartY = ((doc as any).lastAutoTable?.finalY || 170) + 12;
+    if (qStartY > 225) {
+      doc.addPage();
+      drawPageHeader(
+        doc,
+        'TOP 5 QUINTETOS DE LA TEMPORADA',
+        headerSubtitle,
+        doc.getNumberOfPages(),
+        totalPages,
+        logoBase64
+      );
+      qStartY = 44;
+    }
+
+    doc.setTextColor(40, 40, 40);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('Top 5 Quintetos con Más Minutos en la Temporada', 15, qStartY);
+
+    doc.setDrawColor(0, 65, 131);
+    doc.setLineWidth(0.35);
+    doc.line(15, qStartY + 2, 195, qStartY + 2);
+
+    const playerMapPdf = new Map(players.map(p => [p.id, p]));
+    const fmtTPdf = (i: number, o: number, t: number) =>
+      `T:${String(i).padStart(2, '0')}/${String(o).padStart(2, '0')}/${String(t).padStart(2, '0')}`;
+
+    const quintetsPdfBody = topSeasonQuintets.map((q, idx) => {
+      const lineupStr = q.playerIds
+        .map(pid => {
+          const pl = playerMapPdf.get(pid);
+          return pl ? getDisambiguatedPlayerLabel(pl, players, true) : `#${pid}`;
+        })
+        .join(', ');
+      return [
+        `#${idx + 1}`,
+        lineupStr,
+        q.matchesCount.toString(),
+        formatSecondsMMSS(q.secondsTogether),
+        `${q.goalsFor} - ${q.goalsAgainst}`,
+        q.plusMinus > 0 ? `+${q.plusMinus}` : `${q.plusMinus}`,
+        fmtTPdf(q.localShotsIn, q.localShotsOut, q.localShotsTotal),
+        fmtTPdf(q.rivalShotsIn, q.rivalShotsOut, q.rivalShotsTotal)
+      ];
+    });
+
+    const quintetTableStartPage = doc.getNumberOfPages();
+    autoTable(doc, {
+      startY: qStartY + 5,
+      margin: { top: 38, left: 15, bottom: 20 },
+      tableWidth: 180,
+      head: [['Pos', 'Quinteto en Pista', 'Part.', 'Tiempo', 'Goles', '+/-', 'Tiros LCL', 'Tiros RVL']],
+      body: quintetsPdfBody,
+      theme: 'striped',
+      headStyles: {
+        fillColor: [0, 65, 131],
+        textColor: [255, 255, 255],
+        fontSize: 7.2,
+        fontStyle: 'bold',
+        halign: 'center'
+      },
+      styles: {
+        fontSize: 6.8,
+        cellPadding: 1.6,
+        halign: 'center'
+      },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 9, halign: 'center' },
+        1: { fontStyle: 'bold', cellWidth: 81, halign: 'left' },
+        2: { cellWidth: 10, halign: 'center' },
+        3: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+        4: { cellWidth: 14, halign: 'center' },
+        5: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+        6: { cellWidth: 20, halign: 'center' },
+        7: { cellWidth: 20, halign: 'center' }
+      },
+      didParseCell: (data: any) => {
+        if (data.section === 'body' && data.column.index === 5) {
+          const val = String(data.cell.raw || '');
+          if (val.startsWith('+')) {
+            data.cell.styles.textColor = [16, 185, 129];
+          } else if (val.startsWith('-')) {
+            data.cell.styles.textColor = [220, 38, 38];
+          }
+        }
+      },
+      didDrawPage: (data: any) => {
+        if (data.pageNumber > quintetTableStartPage) {
+          drawPageHeader(
+            doc,
+            'TOP 5 QUINTETOS DE LA TEMPORADA',
+            headerSubtitle,
+            data.pageNumber,
+            totalPages,
+            logoBase64
+          );
+        }
+      }
+    });
+
+    const actualTotalPages = doc.getNumberOfPages();
+    if (actualTotalPages !== totalPages) {
+      for (let i = 1; i <= actualTotalPages; i++) {
+        doc.setPage(i);
+        doc.setFillColor(255, 255, 255);
+        doc.rect(175, 281, 32, 7, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(110, 110, 110);
+        doc.text(`Pág. ${i} de ${actualTotalPages}`, 205, 285, { align: 'right' });
+      }
+    }
+  }
 
   doc.save(`FS_Talavera_Reporte_Temporada_${seasonLabel.replace(/\s+/g, '_')}.pdf`);
 };

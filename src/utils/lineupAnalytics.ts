@@ -1,4 +1,4 @@
-import { Match, Player, RotationEvent, ShotEvent } from '../types';
+import { Match, Player, RotationEvent, RotationEventType, ShotEvent } from '../types';
 
 export interface QuintetPerformance {
   key: string;
@@ -115,12 +115,206 @@ const compareHalfEventsChrono = (a: RotationEvent, b: RotationEvent): number => 
   return (a.timestamp || 0) - (b.timestamp || 0);
 };
 
+const parseShotTimestamp = (shot: ShotEvent): number | null => {
+  if (!shot?.id) return null;
+  const match = /^s-(\d+)$/.exec(shot.id);
+  if (!match) return null;
+  const ts = Number(match[1]);
+  return Number.isFinite(ts) ? ts : null;
+};
+
+const hasPlayActionBetween = (
+  shotsEvents: ShotEvent[],
+  half: 1 | 2,
+  sec: number,
+  fromTs: number,
+  toTs: number
+): boolean => {
+  return shotsEvents.some((shot) => {
+    if (shot.half !== half) return false;
+    if (parseClockToSeconds(shot.timeString) !== sec) return false;
+    const shotTs = parseShotTimestamp(shot);
+    if (shotTs === null) return false;
+    return fromTs <= shotTs && shotTs <= toTs;
+  });
+};
+
+export const consolidateRotationEvents = (
+  events: RotationEvent[],
+  shotsEvents: ShotEvent[] = []
+): RotationEvent[] => {
+  if (!events || events.length === 0) return [];
+
+  const consolidated: RotationEvent[] = [];
+
+  for (const half of [1, 2] as const) {
+    const halfEvents = events.filter((ev) => ev.half === half);
+    if (halfEvents.length === 0) continue;
+
+    const halfEndEvents = halfEvents
+      .filter((ev) => ev.type === 'half_end')
+      .sort(compareHalfEventsChrono);
+    const lastHalfEnd =
+      halfEndEvents.length > 0 ? halfEndEvents[halfEndEvents.length - 1] : null;
+
+    const rotationOps = halfEvents
+      .filter((ev) => ev.type !== 'half_end')
+      .sort(compareHalfEventsChrono);
+
+    const clusters: RotationEvent[][] = [];
+    for (const ev of rotationOps) {
+      const currentCluster = clusters[clusters.length - 1];
+      if (!currentCluster) {
+        clusters.push([ev]);
+        continue;
+      }
+
+      const prevEv = currentCluster[currentCluster.length - 1];
+      const sameClock = ev.secondsRemaining === prevEv.secondsRemaining;
+      const interruptedByPlay =
+        sameClock &&
+        hasPlayActionBetween(
+          shotsEvents,
+          half,
+          ev.secondsRemaining,
+          prevEv.timestamp || 0,
+          ev.timestamp || 0
+        );
+
+      if (sameClock && !interruptedByPlay) {
+        currentCluster.push(ev);
+      } else {
+        clusters.push([ev]);
+      }
+    }
+
+    let previousLineupIds: string[] | null = null;
+
+    for (const cluster of clusters) {
+      const firstEv = cluster[0];
+      const lastEv = cluster[cluster.length - 1];
+      const finalOnCourtIds = Array.from(
+        new Set((lastEv.onCourtIds || []).filter(Boolean))
+      );
+
+      if (firstEv.type === 'initial_lineup' || previousLineupIds === null) {
+        consolidated.push({
+          id: lastEv.id || firstEv.id,
+          half,
+          timeString: lastEv.timeString,
+          secondsRemaining: lastEv.secondsRemaining,
+          type: 'initial_lineup',
+          onCourtIds: finalOnCourtIds,
+          timestamp: lastEv.timestamp,
+        });
+        previousLineupIds = finalOnCourtIds;
+        continue;
+      }
+
+      const prevSet = new Set(previousLineupIds);
+      const finalSet = new Set(finalOnCourtIds);
+      const netIn = finalOnCourtIds.filter((id) => !prevSet.has(id));
+      const netOut = previousLineupIds.filter((id) => !finalSet.has(id));
+
+      if (netIn.length === 0 && netOut.length === 0) {
+        continue;
+      }
+
+      const hasRedCard = cluster.some((ev) => ev.type === 'red_card');
+      let mergedType: RotationEventType = 'substitution';
+      if (netIn.length > 0 && netOut.length > 0) {
+        mergedType = 'substitution';
+      } else if (netIn.length > 0 && netOut.length === 0) {
+        mergedType = 'enter';
+      } else if (netOut.length > 0 && netIn.length === 0) {
+        mergedType = hasRedCard ? 'red_card' : 'substitution';
+      }
+
+      consolidated.push({
+        id: lastEv.id || firstEv.id,
+        half,
+        timeString: lastEv.timeString,
+        secondsRemaining: lastEv.secondsRemaining,
+        type: mergedType,
+        inPlayerId: netIn[0],
+        outPlayerId: netOut[0],
+        inPlayerIds: netIn.length > 0 ? netIn : undefined,
+        outPlayerIds: netOut.length > 0 ? netOut : undefined,
+        onCourtIds: finalOnCourtIds,
+        timestamp: lastEv.timestamp,
+      });
+      previousLineupIds = finalOnCourtIds;
+    }
+
+    if (lastHalfEnd) {
+      consolidated.push({
+        ...lastHalfEnd,
+        onCourtIds:
+          lastHalfEnd.onCourtIds && lastHalfEnd.onCourtIds.length > 0
+            ? lastHalfEnd.onCourtIds
+            : previousLineupIds || [],
+      });
+    }
+  }
+
+  return consolidated;
+};
+
+export const formatRotationMovement = (
+  ev: RotationEvent,
+  formatPlayer: (pid: string) => string,
+  separator = ' ⬅ '
+): string => {
+  if (ev.type === 'initial_lineup') {
+    return 'Quinteto Inicial';
+  }
+
+  const ins =
+    ev.inPlayerIds && ev.inPlayerIds.length > 0
+      ? ev.inPlayerIds
+      : ev.inPlayerId
+        ? [ev.inPlayerId]
+        : [];
+  const outs =
+    ev.outPlayerIds && ev.outPlayerIds.length > 0
+      ? ev.outPlayerIds
+      : ev.outPlayerId
+        ? [ev.outPlayerId]
+        : [];
+
+  if (ev.type === 'red_card' && ins.length === 0) {
+    const verb = outs.length > 1 ? 'Expulsiones (Roja)' : 'Expulsión (Roja)';
+    return `${verb} ${outs.map(formatPlayer).join(', ')}`.trim();
+  }
+
+  if (ins.length > 0 && outs.length > 0) {
+    const inVerb = ins.length > 1 ? 'Entran' : 'Entra';
+    const outVerb = outs.length > 1 ? 'Salen' : 'Sale';
+    return `${inVerb} ${ins.map(formatPlayer).join(', ')}${separator}${outVerb} ${outs.map(formatPlayer).join(', ')}`;
+  }
+
+  if (ins.length > 0) {
+    const inVerb = ins.length > 1 ? 'Entran' : 'Entra';
+    return `${inVerb} ${ins.map(formatPlayer).join(', ')}`;
+  }
+
+  if (outs.length > 0) {
+    const outVerb = outs.length > 1 ? 'Salen' : 'Sale';
+    return `${outVerb} ${outs.map(formatPlayer).join(', ')}`;
+  }
+
+  return 'Quinteto Inicial';
+};
+
 export const getOnCourtAtMoment = (
   match: Match,
   half: 1 | 2,
   timeString: string
 ): string[] => {
-  const events = (match.rotationEvents || [])
+  const events = consolidateRotationEvents(
+    match.rotationEvents || [],
+    match.shotsEvents || []
+  )
     .filter((ev) => ev.half === half && ev.type !== 'half_end')
     .sort(compareHalfEventsChrono);
 
@@ -199,8 +393,13 @@ export const computeQuintetStats = (
     return group;
   };
 
+  const consolidatedEvents = consolidateRotationEvents(
+    match.rotationEvents || [],
+    match.shotsEvents || []
+  );
+
   for (const half of [1, 2] as const) {
-    const halfEvents = (match.rotationEvents || [])
+    const halfEvents = consolidatedEvents
       .filter((ev) => ev.half === half)
       .sort(compareHalfEventsChrono);
 
@@ -273,10 +472,70 @@ export const computeQuintetStats = (
 };
 
 export const getDisplayRotationEvents = (match: Match): RotationEvent[] => {
-  return (match.rotationEvents || [])
+  return consolidateRotationEvents(
+    match.rotationEvents || [],
+    match.shotsEvents || []
+  )
     .filter((ev) => ev.type !== 'half_end')
     .sort((a, b) => {
       if (a.half !== b.half) return a.half - b.half;
       return compareHalfEventsChrono(a, b);
     });
+};
+
+export interface SeasonQuintetPerformance extends QuintetPerformance {
+  matchesCount: number;
+}
+
+export const computeSeasonQuintetStats = (
+  matches: Match[],
+  allPlayers: Player[],
+  topN?: number
+): SeasonQuintetPerformance[] => {
+  const aggMap = new Map<string, SeasonQuintetPerformance>();
+
+  for (const match of matches) {
+    const matchQuintets = computeQuintetStats(match, allPlayers);
+    for (const q of matchQuintets) {
+      if (q.playerIds.length !== 5 || q.secondsTogether <= 0) continue;
+
+      const existing = aggMap.get(q.key);
+      if (!existing) {
+        aggMap.set(q.key, {
+          ...q,
+          playerIds: sortLineupIds(q.playerIds, allPlayers),
+          matchesCount: 1,
+        });
+      } else {
+        existing.secondsTogether += q.secondsTogether;
+        existing.stintsCount += q.stintsCount;
+        existing.matchesCount += 1;
+        existing.goalsFor += q.goalsFor;
+        existing.goalsAgainst += q.goalsAgainst;
+        existing.localShotsIn += q.localShotsIn;
+        existing.localShotsOut += q.localShotsOut;
+        existing.localShotsTotal += q.localShotsTotal;
+        existing.rivalShotsIn += q.rivalShotsIn;
+        existing.rivalShotsOut += q.rivalShotsOut;
+        existing.rivalShotsTotal += q.rivalShotsTotal;
+      }
+    }
+  }
+
+  const results = Array.from(aggMap.values())
+    .map((g) => ({
+      ...g,
+      plusMinus: g.goalsFor - g.goalsAgainst,
+    }))
+    .sort((a, b) => {
+      if (b.secondsTogether !== a.secondsTogether) {
+        return b.secondsTogether - a.secondsTogether;
+      }
+      if (b.plusMinus !== a.plusMinus) {
+        return b.plusMinus - a.plusMinus;
+      }
+      return b.matchesCount - a.matchesCount;
+    });
+
+  return topN && topN > 0 ? results.slice(0, topN) : results;
 };
