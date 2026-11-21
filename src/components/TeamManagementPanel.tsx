@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Shield,
@@ -93,7 +93,7 @@ const parsePositionValue = (raw: unknown): PositionType | null => {
   if (norm.includes('cierr') || norm === 'fixo' || norm === 'cie') {
     return 'Cierre';
   }
-  if (norm === 'ala' || norm.startsWith('ala ') || norm.includes('extrem')) {
+  if (norm === 'ala' || norm === 'alas' || norm.startsWith('ala ') || norm.startsWith('alas ') || norm.includes('extrem')) {
     return 'Ala';
   }
   if (norm.includes('pivot') || norm === 'piv') {
@@ -146,38 +146,58 @@ const parseStatusValue = (
   return 'activo';
 };
 
-const parseBirthDateValue = (raw: unknown): string => {
-  if (raw === null || raw === undefined || raw === '') return '';
+const buildValidIsoDate = (y: number, m: number, d: number): string | null => {
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return null;
+  if (y < 1940 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
+
+const parseBirthDateValue = (raw: unknown): { value: string; valid: boolean } => {
+  if (raw === null || raw === undefined || raw === '') return { value: '', valid: true };
 
   if (typeof raw === 'number' && Number.isFinite(raw) && raw > 1000) {
     try {
       const parsed = XLSX.SSF.parse_date_code(raw);
       if (parsed && parsed.y && parsed.m && parsed.d) {
-        return `${String(parsed.y).padStart(4, '0')}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+        const iso = buildValidIsoDate(parsed.y, parsed.m, parsed.d);
+        return iso ? { value: iso, valid: true } : { value: '', valid: false };
       }
     } catch {
-      return '';
+      return { value: '', valid: false };
     }
   }
 
   if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
-    return raw.toISOString().split('T')[0];
+    const iso = buildValidIsoDate(raw.getFullYear(), raw.getMonth() + 1, raw.getDate());
+    return iso ? { value: iso, valid: true } : { value: '', valid: false };
   }
 
   const str = String(raw).trim();
-  if (!str) return '';
+  if (!str) return { value: '', valid: true };
 
-  const isoMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  const isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (isoMatch) {
-    return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    const iso = buildValidIsoDate(
+      parseInt(isoMatch[1], 10),
+      parseInt(isoMatch[2], 10),
+      parseInt(isoMatch[3], 10)
+    );
+    return iso ? { value: iso, valid: true } : { value: '', valid: false };
   }
 
-  const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  const dmyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
   if (dmyMatch) {
-    return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+    const iso = buildValidIsoDate(
+      parseInt(dmyMatch[3], 10),
+      parseInt(dmyMatch[2], 10),
+      parseInt(dmyMatch[1], 10)
+    );
+    return iso ? { value: iso, valid: true } : { value: '', valid: false };
   }
 
-  return '';
+  return { value: '', valid: false };
 };
 
 const getCell = (row: Record<string, unknown>, aliases: string[]): unknown => {
@@ -227,14 +247,50 @@ export default function TeamManagementPanel({
   const [excelRowsPreview, setExcelRowsPreview] = useState<ParsedExcelPlayerRow[] | null>(null);
   const [excelParseError, setExcelParseError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const manageMenuRef = useRef<HTMLDivElement>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
 
   const squadActive = activePlayers.filter((p) => p.isActive);
   const goalkeepersCount = squadActive.filter((p) => p.position === 'Portero/a').length;
   const outfieldCount = squadActive.length - goalkeepersCount;
 
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current !== null) {
+        window.clearTimeout(feedbackTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!manageMenuOpen) return;
+    const handlePointerDown = (ev: MouseEvent) => {
+      if (manageMenuRef.current && !manageMenuRef.current.contains(ev.target as Node)) {
+        setManageMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        setManageMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [manageMenuOpen]);
+
   const showTempFeedback = (msg: string) => {
+    if (feedbackTimerRef.current !== null) {
+      window.clearTimeout(feedbackTimerRef.current);
+    }
     setFeedbackMessage(msg);
-    setTimeout(() => setFeedbackMessage(null), 4500);
+    feedbackTimerRef.current = window.setTimeout(() => {
+      setFeedbackMessage(null);
+      feedbackTimerRef.current = null;
+    }, 4500);
   };
 
   const openModal = (mode: ModalMode) => {
@@ -262,30 +318,49 @@ export default function TeamManagementPanel({
     setModalError('');
 
     if (modalMode === 'create_team') {
-      if (!inputName.trim()) {
+      const trimmed = inputName.trim();
+      if (!trimmed) {
         setModalError('El nombre del equipo es obligatorio.');
         return;
       }
-      const newId = onCreateTeam(inputName.trim(), inputCategory.trim());
+      if (activeTeams.some((t) => normalizeCompare(t.name) === normalizeCompare(trimmed))) {
+        setModalError('Ya existe un equipo activo con ese nombre.');
+        return;
+      }
+      const newId = onCreateTeam(trimmed, inputCategory.trim());
       onSelectTeam(newId);
       setModalMode(null);
-      showTempFeedback(`Equipo "${inputName.trim()}" creado.`);
+      showTempFeedback(`Equipo "${trimmed}" creado.`);
     } else if (modalMode === 'edit_team' && currentTeam) {
-      if (!inputName.trim()) {
+      const trimmed = inputName.trim();
+      if (!trimmed) {
         setModalError('El nombre del equipo es obligatorio.');
         return;
       }
-      onUpdateTeam(currentTeam.id, inputName.trim(), inputCategory.trim());
+      if (
+        activeTeams.some(
+          (t) => t.id !== currentTeam.id && normalizeCompare(t.name) === normalizeCompare(trimmed)
+        )
+      ) {
+        setModalError('Ya existe otro equipo activo con ese nombre.');
+        return;
+      }
+      onUpdateTeam(currentTeam.id, trimmed, inputCategory.trim());
       setModalMode(null);
-      showTempFeedback(`Equipo actualizado a "${inputName.trim()}".`);
+      showTempFeedback(`Equipo actualizado a "${trimmed}".`);
     } else if (modalMode === 'duplicate_team' && currentTeam) {
-      if (!inputName.trim()) {
+      const trimmed = inputName.trim();
+      if (!trimmed) {
         setModalError('Indica un nombre para el nuevo equipo duplicado.');
         return;
       }
-      onDuplicateTeam(currentTeam.id, inputName.trim(), inputCategory.trim());
+      if (activeTeams.some((t) => normalizeCompare(t.name) === normalizeCompare(trimmed))) {
+        setModalError('Ya existe un equipo activo con ese nombre.');
+        return;
+      }
+      onDuplicateTeam(currentTeam.id, trimmed, inputCategory.trim());
       setModalMode(null);
-      showTempFeedback(`Equipo "${inputName.trim()}" duplicado con su plantilla.`);
+      showTempFeedback(`Equipo "${trimmed}" duplicado con su plantilla.`);
     } else if (modalMode === 'archive_team' && currentTeam) {
       if (activeTeams.length <= 1) {
         setModalError('No puedes archivar el único equipo activo.');
@@ -295,14 +370,19 @@ export default function TeamManagementPanel({
       setModalMode(null);
       showTempFeedback(`Equipo "${currentTeam.name}" archivado.`);
     } else if (modalMode === 'create_season') {
-      if (!inputName.trim()) {
+      const trimmed = inputName.trim();
+      if (!trimmed) {
         setModalError('El nombre de la temporada es obligatorio (ej. 2027/28).');
         return;
       }
-      const newId = onCreateSeason(inputName.trim(), copySquadChecked);
+      if (seasons.some((s) => normalizeCompare(s.name) === normalizeCompare(trimmed))) {
+        setModalError('Ya existe una temporada con ese nombre.');
+        return;
+      }
+      const newId = onCreateSeason(trimmed, copySquadChecked);
       onSelectSeason(newId);
       setModalMode(null);
-      showTempFeedback(`Temporada "${inputName.trim()}" creada.`);
+      showTempFeedback(`Temporada "${trimmed}" creada.`);
     }
   };
 
@@ -372,11 +452,33 @@ export default function TeamManagementPanel({
     const safeTeam = teamLabel.replace(/[^a-zA-Z0-9_-]+/g, '_');
     const safeSeason = seasonLabel.replace(/[^a-zA-Z0-9_-]+/g, '_');
 
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const worksheet =
+      exportRows.length > 0
+        ? XLSX.utils.json_to_sheet(exportRows)
+        : XLSX.utils.aoa_to_sheet([
+            [
+              'EQUIPO',
+              'CATEGORIA',
+              'TEMPORADA',
+              'NOMBRE',
+              'ALIAS',
+              'DORSAL',
+              'POSICION',
+              'FECHA_NACIMIENTO',
+              'PIERNA',
+              'GENERO',
+              'CAPITAN',
+              'ESTADO',
+            ],
+          ]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla');
     XLSX.writeFile(workbook, `FS_TALAVERA_${safeTeam}_${safeSeason}.xlsx`);
-    showTempFeedback(`Exportados ${exportRows.length} jugadores/as a Excel.`);
+    showTempFeedback(
+      exportRows.length > 0
+        ? `Exportados ${exportRows.length} jugadores/as a Excel.`
+        : 'Plantilla sin jugadores/as activos/as: se descargó la cabecera Excel.'
+    );
   };
 
   const handleExcelFileSelected = async (
@@ -387,8 +489,10 @@ export default function TeamManagementPanel({
     setExcelParseError(null);
 
     try {
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array' });
+      const isCsv = file.name.toLowerCase().endsWith('.csv');
+      const workbook = isCsv
+        ? XLSX.read(await file.text(), { type: 'string' })
+        : XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const firstSheetName = workbook.SheetNames[0];
       if (!firstSheetName) {
         setExcelParseError('El archivo no contiene ninguna hoja válida.');
@@ -396,9 +500,13 @@ export default function TeamManagementPanel({
       }
 
       const sheet = workbook.Sheets[firstSheetName];
-      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-        defval: '',
-      });
+      const rawRows = XLSX.utils
+        .sheet_to_json<Record<string, unknown>>(sheet, {
+          defval: '',
+        })
+        .filter((row) =>
+          Object.values(row).some((val) => String(val ?? '').trim() !== '')
+        );
 
       if (rawRows.length === 0) {
         setExcelParseError('La hoja de cálculo está vacía.');
@@ -412,17 +520,20 @@ export default function TeamManagementPanel({
         seasons.map((s) => [s.id, s])
       );
 
-      // Build existing active dorsal lookup per normalized (teamName, seasonName)
+      // Build existing active dorsal lookup per normalized (teamName, seasonName), skipping archived teams
       const existingDorsals = new Set<string>();
       allPlayers
         .filter((p) => p.isActive)
         .forEach((p) => {
-          const tName =
-            teamMap.get(p.teamId || DEFAULT_TEAM_ID)?.name || 'FS Talavera';
+          const teamObj = teamMap.get(p.teamId || DEFAULT_TEAM_ID);
+          if (teamObj?.isArchived) return;
+          const tName = teamObj?.name || 'FS Talavera';
           const sName =
             seasonMap.get(p.seasonId || DEFAULT_SEASON_ID)?.name || '2026/27';
+          const rawPNum = String(p.number).trim();
+          const normPNum = /^\d+$/.test(rawPNum) ? String(parseInt(rawPNum, 10)) : rawPNum;
           existingDorsals.add(
-            `${normalizeCompare(tName)}||${normalizeCompare(sName)}||${String(p.number).trim()}`
+            `${normalizeCompare(tName)}||${normalizeCompare(sName)}||${normPNum}`
           );
         });
 
@@ -464,9 +575,11 @@ export default function TeamManagementPanel({
         const rawNumber = String(
           getCell(row, ['dorsal', 'numero', 'n', 'num', 'number']) ?? ''
         ).trim();
-        const numberValid = rawNumber !== '' && !Number.isNaN(Number(rawNumber));
+        const parsedNumber = /^\d+$/.test(rawNumber) ? parseInt(rawNumber, 10) : NaN;
+        const numberValid = Number.isInteger(parsedNumber) && parsedNumber >= 1 && parsedNumber <= 99;
+        const normalizedNumber = numberValid ? String(parsedNumber) : rawNumber;
         if (!numberValid) {
-          errors.push('DORSAL inválido o vacío');
+          errors.push('DORSAL inválido (debe ser un entero entre 1 y 99)');
         }
 
         const rawPos = getCell(row, ['posicion', 'puesto', 'demarcacion', 'position']);
@@ -477,9 +590,13 @@ export default function TeamManagementPanel({
           );
         }
 
-        const birthDate = parseBirthDateValue(
+        const birthDateParsed = parseBirthDateValue(
           getCell(row, ['fecha_nacimiento', 'nacimiento', 'fecha_nac', 'fnac', 'birthdate'])
         );
+        if (!birthDateParsed.valid) {
+          errors.push('FECHA_NACIMIENTO inválida o inexistente');
+        }
+        const birthDate = birthDateParsed.value;
         const dominantLeg = parseDominantLegValue(
           getCell(row, ['pierna', 'pierna_dominante', 'pie', 'dominantleg'])
         );
@@ -494,13 +611,14 @@ export default function TeamManagementPanel({
         );
 
         if (numberValid && status !== 'baja') {
-          const scopeKey = `${normalizeCompare(teamName)}||${normalizeCompare(seasonName)}||${rawNumber}`;
+          const scopeKey = `${normalizeCompare(teamName)}||${normalizeCompare(seasonName)}||${normalizedNumber}`;
           if (seenInFile.has(scopeKey)) {
-            errors.push(`Dorsal #${rawNumber} duplicado en el Excel (${teamName} · ${seasonName})`);
+            errors.push(`Dorsal #${normalizedNumber} duplicado en el Excel (${teamName} · ${seasonName})`);
           } else {
-            seenInFile.add(scopeKey);
             if (existingDorsals.has(scopeKey)) {
-              errors.push(`Dorsal #${rawNumber} ya existe en ${teamName} (${seasonName})`);
+              errors.push(`Dorsal #${normalizedNumber} ya existe en ${teamName} (${seasonName})`);
+            } else if (errors.length === 0) {
+              seenInFile.add(scopeKey);
             }
           }
         }
@@ -512,7 +630,7 @@ export default function TeamManagementPanel({
           seasonName,
           name,
           alias,
-          number: rawNumber,
+          number: normalizedNumber,
           position: parsedPos || 'Ala',
           birthDate,
           dominantLeg,
@@ -603,7 +721,7 @@ export default function TeamManagementPanel({
             </div>
 
             {/* Action menu */}
-            <div className="relative">
+            <div className="relative" ref={manageMenuRef}>
               <button
                 type="button"
                 onClick={() => setManageMenuOpen((prev) => !prev)}

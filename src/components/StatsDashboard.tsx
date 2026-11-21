@@ -9,7 +9,7 @@ import {
   CheckCircle, Shield, FileText, UserCheck, ArrowRight, Table, Calendar, BarChart2
 } from 'lucide-react';
 import { Match, Player } from '../types';
-import { exportTeamReportToPDF, exportPlayerComparisonsToPDF, MINUTE_INTERVALS, getMatchMinuteFromShot, getMinuteIntervalFromMinute } from '../utils/pdfGenerator';
+import { exportTeamReportToPDF, exportPlayerComparisonsToPDF, MINUTE_INTERVALS, getMinuteIntervalFromShot } from '../utils/pdfGenerator';
 import { computeSeasonQuintetStats, formatSecondsMMSS, getDisambiguatedPlayerLabel } from '../utils/lineupAnalytics';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell, CartesianGrid 
@@ -18,6 +18,7 @@ import {
 interface StatsDashboardProps {
   matches: Match[];
   players: Player[];
+  allTeamPlayers?: Player[];
   activeTeamName?: string;
 }
 
@@ -45,7 +46,7 @@ const CustomIntervalTooltip = ({ active, payload, label }: any) => {
         <div className="flex items-center justify-between gap-3 text-[#004183] font-bold py-0.5">
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-[#004183]"></span>
-            Goles Talavera:
+            Goles Equipo:
           </span>
           <span className="font-mono">{favor}</span>
         </div>
@@ -124,7 +125,8 @@ export function getMatchSeason(dateStr: string): string {
   }
 }
 
-export default function StatsDashboard({ matches, players, activeTeamName }: StatsDashboardProps) {
+export default function StatsDashboard({ matches, players, allTeamPlayers, activeTeamName }: StatsDashboardProps) {
+  const lookupPlayers = allTeamPlayers && allTeamPlayers.length > 0 ? allTeamPlayers : players;
   // Extract all unique seasons from existing matches
   const uniqueSeasons = Array.from(new Set(matches.map(m => getMatchSeason(m.date))));
   
@@ -141,7 +143,7 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
   uniqueSeasons.sort((a, b) => b.localeCompare(a));
 
   // States
-  const [selectedSeason, setSelectedSeason] = useState<string>(currentRunSeason);
+  const [selectedSeason, setSelectedSeason] = useState<string>('all');
   const [matchTypeFilter, setMatchTypeFilter] = useState<'all' | 'oficial' | 'amistoso'>('oficial');
   const [venueFilter, setVenueFilter] = useState<'all' | 'local' | 'visitante'>('all');
   const [goalIntervalView, setGoalIntervalView] = useState<'both' | 'local' | 'rival'>('both');
@@ -157,17 +159,17 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
       name: `Reporte de Temporada - Recopilación (${seasonLabel} - ${typeLabel}${venueLabel})`
     });
     setTimeout(() => setPdfNotification(null), 7500);
-    exportTeamReportToPDF(filteredMatches, players, selectedSeason, matchTypeFilter, venueFilter, activeTeamName);
+    exportTeamReportToPDF(filteredMatches, lookupPlayers, selectedSeason, matchTypeFilter, venueFilter, activeTeamName);
   };
 
   const handleExportComparisons = () => {
     const selectedObjects = players.filter(p => selectedPlayerIds.includes(p.id));
     setPdfNotification({
       show: true,
-      name: `Comparativa de Rendimiento (${selectedObjects.length} jugadora(s) seleccionadas)`
+      name: `Comparativa de Rendimiento (${selectedObjects.length} jugador/a(s) seleccionados/as)`
     });
     setTimeout(() => setPdfNotification(null), 7500);
-    exportPlayerComparisonsToPDF(selectedObjects, filteredMatches);
+    exportPlayerComparisonsToPDF(selectedObjects, filteredMatches, activeTeamName);
   };
 
   // Filtered list of matches
@@ -198,11 +200,11 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
   const totalTeamShots = filteredMatches.reduce((acc, m) => acc + m.teamShots, 0);
   const totalTeamYellows = filteredMatches.reduce((acc, m) => acc + m.teamYellows, 0);
 
-  const topQuintets = computeSeasonQuintetStats(filteredMatches, players, 5);
+  const topQuintets = computeSeasonQuintetStats(filteredMatches, lookupPlayers, 5);
   const matchesWithRotationsCount = filteredMatches.filter(
     m => m.rotationEvents && m.rotationEvents.length > 0
   ).length;
-  const playerMap = new Map(players.map(p => [p.id, p]));
+  const playerMap = new Map(lookupPlayers.map(p => [p.id, p]));
   const maxQuintetSeconds = topQuintets.length > 0 ? topQuintets[0].secondsTogether : 1;
 
   // Compute individual aggregated historical performance for ALL players based on filtered matches
@@ -217,7 +219,7 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
     let matchesParticipated = 0;
 
     filteredMatches.forEach(match => {
-      const perf = match.stats[player.id];
+      const perf = (match.stats || {})[player.id];
       if (perf) {
         if (perf.secondsPlayed > 0) {
           matchesParticipated += 1;
@@ -350,8 +352,7 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
     if (m.shotsEvents && m.shotsEvents.length > 0) {
       m.shotsEvents.forEach(s => {
         if (s.type === 'goal') {
-          const minute = getMatchMinuteFromShot(s);
-          const interval = getMinuteIntervalFromMinute(minute);
+          const interval = getMinuteIntervalFromShot(s, m.periodDurationMinutes ?? 20);
           if (s.team === 'local') {
             intervalGoalsLocal[interval]++;
           } else {
@@ -1073,20 +1074,24 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
                   <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3 flex flex-col justify-between">
                     <span className="text-[9.5px] uppercase font-bold text-blue-900 tracking-wider">Tramo Más Goleador (Equipo)</span>
                     <p className="text-base font-black text-blue-950 font-display mt-1">
-                      Minutos {bestScoringInterval}'
+                      {totalIntervalGoalsLocal > 0 ? `Minutos ${bestScoringInterval}'` : 'Sin goles'}
                     </p>
                     <span className="text-[10px] text-blue-700 font-semibold mt-0.5">
-                      {intervalGoalsLocal[bestScoringInterval] || 0} goles marcados ({totalIntervalGoalsLocal > 0 ? Math.round(((intervalGoalsLocal[bestScoringInterval] || 0) / totalIntervalGoalsLocal) * 100) : 0}%)
+                      {totalIntervalGoalsLocal > 0
+                        ? `${intervalGoalsLocal[bestScoringInterval] || 0} goles marcados (${Math.round(((intervalGoalsLocal[bestScoringInterval] || 0) / totalIntervalGoalsLocal) * 100)}%)`
+                        : 'Sin tantos registrados en esta selección'}
                     </span>
                   </div>
 
                   <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-3 flex flex-col justify-between">
                     <span className="text-[9.5px] uppercase font-bold text-rose-900 tracking-wider">Tramo Con Más Goles Recibidos</span>
                     <p className="text-base font-black text-rose-950 font-display mt-1">
-                      Minutos {worstConcedingInterval}'
+                      {totalIntervalGoalsRival > 0 ? `Minutos ${worstConcedingInterval}'` : 'Sin goles'}
                     </p>
                     <span className="text-[10px] text-rose-700 font-semibold mt-0.5">
-                      {intervalGoalsRival[worstConcedingInterval] || 0} goles encajados ({totalIntervalGoalsRival > 0 ? Math.round(((intervalGoalsRival[worstConcedingInterval] || 0) / totalIntervalGoalsRival) * 100) : 0}%)
+                      {totalIntervalGoalsRival > 0
+                        ? `${intervalGoalsRival[worstConcedingInterval] || 0} goles encajados (${Math.round(((intervalGoalsRival[worstConcedingInterval] || 0) / totalIntervalGoalsRival) * 100)}%)`
+                        : 'Portería imbatida / sin registros'}
                     </span>
                   </div>
 
@@ -1098,7 +1103,13 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
                       <span className="text-sm font-black text-[#004183] font-mono">2ªP: {local2ndHalfGoals}G</span>
                     </div>
                     <span className="text-[10px] text-slate-500 font-medium mt-0.5">
-                      {local2ndHalfGoals >= local1stHalfGoals ? 'Mayor pegada en la segunda mitad' : 'Mayor efectividad en la primera mitad'}
+                      {local1stHalfGoals === 0 && local2ndHalfGoals === 0
+                        ? 'Sin goles registrados en ambas partes'
+                        : local2ndHalfGoals === local1stHalfGoals
+                          ? 'Misma producción en ambas mitades'
+                          : local2ndHalfGoals > local1stHalfGoals
+                            ? 'Mayor pegada en la segunda mitad'
+                            : 'Mayor efectividad en la primera mitad'}
                     </span>
                   </div>
                 </div>
@@ -1110,10 +1121,10 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
                   <div>
                     <h3 className="text-lg font-bold text-slate-900 flex items-center gap-1.5 font-display">
                       <UserCheck className="text-[#004183]" size={20} />
-                      <span>Comparativa de Jugadoras ({selectedSeason === 'all' ? 'Completo' : selectedSeason})</span>
+                      <span>Comparativa de Plantilla ({selectedSeason === 'all' ? 'Completo' : selectedSeason})</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Selecciona jugadoras para generar una matriz comparativa cruzada enfocada en esta temporada.
+                      Selecciona jugadores/as para generar una matriz comparativa cruzada enfocada en esta temporada.
                     </p>
                   </div>
                   
@@ -1172,10 +1183,10 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
                   <div className="bg-slate-100/40 p-10 text-center rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center">
                     <Table className="text-slate-300 mb-2" size={32} />
                     <p className="text-xs font-medium text-slate-500">
-                      Ninguna jugadora seleccionada para comparar.
+                      Ningún/a jugador/a seleccionado/a para comparar.
                     </p>
                     <p className="text-[10px] text-slate-400 mt-0.5">
-                      Haz clic en las jugadoras de la lista para abrir la matriz de comparación métrica.
+                      Haz clic en los/as jugadores/as de la lista para abrir la matriz de comparación métrica.
                     </p>
                   </div>
                 ) : (
@@ -1273,7 +1284,7 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
                         <tr className="hover:bg-slate-50">
                           <td className="py-3 px-4 font-bold text-slate-800 bg-slate-50">Paradas (Portero/a)</td>
                           {comparedPlayerStats.map(ps => {
-                            const isGK = ps.player.position === 'Portero/a';
+                            const isGK = ps.player.position === 'Portero/a' || ps.saves > 0 || ps.goalsConceded > 0;
                             return (
                               <td key={ps.player.id} className="py-3 px-4 text-center font-bold font-mono text-indigo-700">
                                 {isGK ? `${ps.saves} paradas` : '-'}
@@ -1285,7 +1296,7 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
                         <tr className="hover:bg-slate-50">
                           <td className="py-3 px-4 font-bold text-slate-800 bg-slate-50">Goles Encajados</td>
                           {comparedPlayerStats.map(ps => {
-                            const isGK = ps.player.position === 'Portero/a';
+                            const isGK = ps.player.position === 'Portero/a' || ps.saves > 0 || ps.goalsConceded > 0;
                             return (
                               <td key={ps.player.id} className="py-3 px-4 text-center font-bold font-mono text-rose-600">
                                 {isGK ? `${ps.goalsConceded} goles` : '-'}
@@ -1564,7 +1575,7 @@ export default function StatsDashboard({ matches, players, activeTeamName }: Sta
                                     pl?.position === 'Portero/a' ||
                                     Boolean(pl?.position?.toLowerCase().includes('porter'));
                                   const label = pl
-                                    ? getDisambiguatedPlayerLabel(pl, players, true)
+                                    ? getDisambiguatedPlayerLabel(pl, lookupPlayers, true)
                                     : `#${pid}`;
                                   return (
                                     <span

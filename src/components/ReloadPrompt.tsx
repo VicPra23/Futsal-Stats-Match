@@ -26,7 +26,7 @@ export default function ReloadPrompt() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 max-w-sm animate-fade-in flex flex-col gap-3">
+    <div className="fixed bottom-20 right-4 z-[100] bg-white border border-slate-200 rounded-2xl shadow-xl p-4 max-w-sm animate-fade-in flex flex-col gap-3">
       <div className="flex justify-between items-start">
         <h3 className="text-sm font-bold text-[#004183]">
           {offlineReady ? 'App lista para uso sin conexión' : '¡Nueva Actualización Disponible!'}

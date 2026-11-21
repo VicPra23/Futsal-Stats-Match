@@ -33,6 +33,7 @@ import {
 interface HistoryListProps {
   matches: Match[];
   players: Player[];
+  allTeamPlayers?: Player[];
   onDeleteMatch?: (id: string) => void;
   onUpdateMatchComment?: (id: string, comment: string) => void;
   activeTeamName?: string;
@@ -56,10 +57,13 @@ function getMatchSeason(dateStr: string): string {
 export default function HistoryList({
   matches,
   players,
+  allTeamPlayers,
   onDeleteMatch,
   onUpdateMatchComment,
   activeTeamName,
 }: HistoryListProps) {
+  const lookupPlayers =
+    allTeamPlayers && allTeamPlayers.length > 0 ? allTeamPlayers : players;
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
   const [commentsState, setCommentsState] = useState<Record<string, string>>(
@@ -156,10 +160,14 @@ export default function HistoryList({
   // Filter criteria
   const filteredMatches = matches
     .filter((match) => {
-      const matchRival = match.rival.toLowerCase();
-      const query = searchQuery.toLowerCase();
-      const matchText = `vs ${matchRival} jornada ${match.jornada}`;
-      const matchesSearch = matchText.includes(query);
+      const matchRival = (match.rival || "").toLowerCase();
+      const query = searchQuery.toLowerCase().trim();
+      const typeLabel =
+        match.matchType === "amistoso"
+          ? "amistoso"
+          : `jornada ${match.jornada ?? ""}`;
+      const matchText = `vs ${matchRival} ${typeLabel} ${match.date || ""}`;
+      const matchesSearch = !query || matchText.includes(query);
       const matchesOutcome =
         outcomeFilter === "ALL" || match.result === outcomeFilter;
       const matchesCompetition =
@@ -169,7 +177,7 @@ export default function HistoryList({
       const matchesJornada =
         competitionFilter !== "oficial" ||
         selectedJornadas.length === 0 ||
-        selectedJornadas.includes(match.jornada);
+        (match.jornada !== undefined && selectedJornadas.includes(match.jornada));
       return (
         matchesSearch &&
         matchesOutcome &&
@@ -178,11 +186,11 @@ export default function HistoryList({
         matchesJornada
       );
     })
-    // Sort reverse chronological: most recent match on top
+    // Sort reverse chronological: most recent date on top, then jornada desc
     .sort(
       (a, b) =>
-        (b.jornada || 0) - (a.jornada || 0) ||
-        new Date(b.date).getTime() - new Date(a.date).getTime(),
+        new Date(b.date).getTime() - new Date(a.date).getTime() ||
+        (b.jornada || 0) - (a.jornada || 0),
     );
 
   const handleExportPDF = (e: React.MouseEvent, match: Match) => {
@@ -203,7 +211,7 @@ export default function HistoryList({
     }, 7500);
 
     try {
-      exportMatchToPDF(match, players, activeTeamName);
+      exportMatchToPDF(match, lookupPlayers, activeTeamName);
     } catch (err) {
       console.error("Error generating PDF report:", err);
     }
@@ -672,7 +680,7 @@ export default function HistoryList({
                             ...Object.keys(match.stats || {}),
                           ]);
 
-                          const convocadasList = players.filter((p) =>
+                          const convocadasList = lookupPlayers.filter((p) =>
                             convocadasIds.has(p.id),
                           );
 
@@ -693,7 +701,7 @@ export default function HistoryList({
                           const playersToRender =
                             sortedConvocadas.length > 0
                               ? sortedConvocadas
-                              : players.filter((p) => p.isActive);
+                              : lookupPlayers.filter((p) => p.isActive);
 
                           return (
                             <table className="w-full text-left text-[11px] text-slate-700 font-sans table-fixed min-w-0">
@@ -703,7 +711,7 @@ export default function HistoryList({
                                     #
                                   </th>
                                   <th className="p-2 text-left w-[24%] font-sans">
-                                    Jugadora
+                                    Jugador/a
                                   </th>
                                   <th className="p-2 text-center w-[10%] font-sans">
                                     Pos.
@@ -733,7 +741,7 @@ export default function HistoryList({
                               </thead>
                               <tbody className="divide-y divide-slate-100 font-sans">
                                 {playersToRender.map((player) => {
-                                  const perf = match.stats[player.id] || {
+                                  const perf = (match.stats || {})[player.id] || {
                                     secondsPlayed: 0,
                                     shots: 0,
                                     goals: 0,
@@ -743,7 +751,15 @@ export default function HistoryList({
                                     goalsConceded: 0,
                                   };
 
-                                  const isGK = player.position === "Portero/a";
+                                  const isStartingGoalkeeper = Boolean(
+                                    match.titulares &&
+                                      match.titulares[0] === player.id,
+                                  );
+                                  const isGK =
+                                    player.position === "Portero/a" ||
+                                    isStartingGoalkeeper ||
+                                    (perf.saves || 0) > 0 ||
+                                    (perf.goalsConceded || 0) > 0;
 
                                   return (
                                     <tr
@@ -824,7 +840,7 @@ export default function HistoryList({
                         const hasRotationData = Boolean(
                           match.rotationEvents && match.rotationEvents.length > 0,
                         );
-                        const playerMap = new Map(players.map((p) => [p.id, p]));
+                        const playerMap = new Map(lookupPlayers.map((p) => [p.id, p]));
                         const rotPoolIds = new Set<string>([
                           ...(match.titulares || []),
                           ...(match.suplentes || []),
@@ -838,7 +854,7 @@ export default function HistoryList({
                           .map((id) => playerMap.get(id))
                           .filter((p): p is Player => Boolean(p));
                         const labelPool =
-                          matchPlayerPool.length > 0 ? matchPlayerPool : players;
+                          matchPlayerPool.length > 0 ? matchPlayerPool : lookupPlayers;
 
                         const formatChipLabel = (pid?: string) => {
                           if (!pid) return "Jugador/a";
@@ -861,7 +877,7 @@ export default function HistoryList({
                           );
                         }
 
-                        const quintets = computeQuintetStats(match, players);
+                        const quintets = computeQuintetStats(match, lookupPlayers);
                         const rotations = getDisplayRotationEvents(match);
                         const activeRotTab =
                           rotationViewTab[match.id] || "quintets";
@@ -1063,7 +1079,7 @@ export default function HistoryList({
                                                   </span>{" "}
                                                   {sortLineupIds(
                                                     ev.onCourtIds,
-                                                    players,
+                                                    lookupPlayers,
                                                   )
                                                     .map(formatChipLabel)
                                                     .join(", ")}

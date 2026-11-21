@@ -11,7 +11,7 @@ import {
 import { Player, PositionType, Match } from '../types';
 import { exportPlayerDossierToPDF } from '../utils/pdfGenerator';
 import { 
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell, CartesianGrid 
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell 
 } from 'recharts';
 
 interface PlayerManagerProps {
@@ -22,9 +22,6 @@ interface PlayerManagerProps {
   onDeletePlayer: (id: string) => void;
   activeTeamName?: string;
 }
-
-// Colors for Pie Chart
-const COLORS = ['#004183', '#FFD700', '#10b981', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#14b8a6'];
 
 // Helper to render customized footprint icon depending on dominant leg
 const renderDominantLegIcon = (leg: 'Diestra' | 'Zurda' | 'Ambidiestra', size: number = 12) => {
@@ -152,7 +149,7 @@ export default function PlayerManager({
 
     matches.forEach(match => {
       if (filter !== 'all' && match.matchType !== filter) return;
-      const perf = match.stats[playerId];
+      const perf = match.stats?.[playerId];
       if (perf) {
         if (perf.secondsPlayed > 0) {
           matchesParticipated += 1;
@@ -181,49 +178,18 @@ export default function PlayerManager({
     };
   };
 
-  // Team-wide aggregated stats
-  const totalLocalShots = matches.reduce((acc, match) => {
-    return acc + match.shotsEvents.filter(s => s.team === 'local').length;
-  }, 0);
-
-  const totalLocalGoals = matches.reduce((acc, match) => {
-    return acc + match.shotsEvents.filter(s => s.team === 'local' && s.type === 'goal').length;
-  }, 0);
-
-  const totalLocalOnTarget = matches.reduce((acc, match) => {
-    return acc + match.shotsEvents.filter(s => s.team === 'local' && s.type === 'on_target').length + match.goalsFor;
-  }, 0);
-
-  // Recharts: Distribution of Goals per Athlete
-  const goalsByPlayerData = players
-    .filter(p => p.isActive)
-    .map(p => {
-      const stats = getPlayerStats(p.id);
-      return {
-        name: p.alias || p.name,
-        goles: stats.goals
-      };
-    })
-    .filter(data => data.goles > 0);
-
-  // Recharts: Team Shots Global Performance Breakdown
-  const globalShotsChartData = [
-    { name: 'Tiros Totales', cantidad: totalLocalShots, color: '#004183' },
-    { name: 'A Puerta', cantidad: totalLocalOnTarget, color: '#0ea5e9' },
-    { name: 'Goles', cantidad: totalLocalGoals, color: '#10b981' }
-  ];
-
   // Age calculation helper
   const calculateAge = (dateStr: string): number => {
     if (!dateStr) return 0;
     const today = new Date();
     const birth = new Date(dateStr);
+    if (isNaN(birth.getTime())) return 0;
     let age = today.getFullYear() - birth.getFullYear();
     const m = today.getMonth() - birth.getMonth();
     if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
       age--;
     }
-    return age;
+    return Math.max(0, age);
   };
 
   // Convert seconds to beautiful text format
@@ -395,48 +361,7 @@ export default function PlayerManager({
     }
   };
 
-  const handleAddSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-
-    if (!name.trim()) {
-      setError('El Nombre Completo es obligatorio.');
-      return;
-    }
-    if (!number.trim() || isNaN(Number(number))) {
-      setError('El Dorsal es obligatorio y debe ser un número válido.');
-      return;
-    }
-    if (!position) {
-      setError('La Posición Natural es obligatoria.');
-      return;
-    }
-    if (!dominantLeg) {
-      setError('La Pierna Dominante es obligatoria.');
-      return;
-    }
-
-    // Check taken dorsal
-    const numExists = players.some(p => p.number === number.trim() && p.isActive);
-    if (numExists) {
-      setError(`El dorsal #${number} ya está asignado a otro/a jugador/a activo/a.`);
-      return;
-    }
-
-    onAddPlayer({
-      name: name.trim(),
-      alias: alias.trim() ? alias.trim() : name.trim().split(' ')[0],
-      number: number.trim(),
-      position: position as PositionType,
-      birthDate: birthDate || '',
-      dominantLeg: dominantLeg as 'Diestra' | 'Zurda' | 'Ambidiestra',
-      photo: photo || undefined,
-      gender: gender,
-      captain,
-      status
-    });
-
-    // Reset Form State
+  const resetAddForm = () => {
     setName('');
     setAlias('');
     setNumber('');
@@ -451,6 +376,57 @@ export default function PlayerManager({
     setZoom(1.2);
     setOffsetY(-15);
     setOffsetX(0);
+    setError('');
+  };
+
+  const handleAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!name.trim()) {
+      setError('El Nombre Completo es obligatorio.');
+      return;
+    }
+    const rawNum = number.trim();
+    const parsedNum = /^\d+$/.test(rawNum) ? parseInt(rawNum, 10) : NaN;
+    if (!Number.isInteger(parsedNum) || parsedNum < 1 || parsedNum > 99) {
+      setError('El Dorsal es obligatorio y debe ser un número entero entre 1 y 99.');
+      return;
+    }
+    const normalizedNumber = String(parsedNum);
+    if (!position) {
+      setError('La Posición Natural es obligatoria.');
+      return;
+    }
+    if (!dominantLeg) {
+      setError('La Pierna Dominante es obligatoria.');
+      return;
+    }
+
+    // Check taken dorsal
+    const numExists = players.some(p => {
+      const pNum = /^\d+$/.test(String(p.number).trim()) ? String(parseInt(String(p.number).trim(), 10)) : String(p.number).trim();
+      return pNum === normalizedNumber && p.isActive;
+    });
+    if (numExists) {
+      setError(`El dorsal #${normalizedNumber} ya está asignado a otro/a jugador/a activo/a.`);
+      return;
+    }
+
+    onAddPlayer({
+      name: name.trim(),
+      alias: alias.trim() ? alias.trim() : name.trim().split(' ')[0],
+      number: normalizedNumber,
+      position: position as PositionType,
+      birthDate: birthDate || '',
+      dominantLeg: dominantLeg as 'Diestra' | 'Zurda' | 'Ambidiestra',
+      photo: photo || undefined,
+      gender: gender,
+      captain,
+      status
+    });
+
+    resetAddForm();
     setShowForm(false);
   };
 
@@ -464,7 +440,7 @@ export default function PlayerManager({
     setEditBirthDate(player.birthDate || '');
     setEditDominantLeg(player.dominantLeg || 'Diestra');
     setEditPhoto(player.photo || '');
-    setEditRawPhoto(player.photo || '');
+    setEditRawPhoto('');
     setEditZoom(1.0); // No extra zoom on load of already cropped image
     setEditOffsetY(0);
     setEditOffsetX(0);
@@ -481,15 +457,21 @@ export default function PlayerManager({
       setError('El Nombre Completo es obligatorio.');
       return;
     }
-    if (!editNumber.trim() || isNaN(Number(editNumber))) {
-      setError('El Dorsal es obligatorio y debe ser un número válido.');
+    const rawEditNum = editNumber.trim();
+    const parsedEditNum = /^\d+$/.test(rawEditNum) ? parseInt(rawEditNum, 10) : NaN;
+    if (!Number.isInteger(parsedEditNum) || parsedEditNum < 1 || parsedEditNum > 99) {
+      setError('El Dorsal es obligatorio y debe ser un número entero entre 1 y 99.');
       return;
     }
+    const normalizedEditNumber = String(parsedEditNum);
 
     // Check taken dorsal (excluding current)
-    const numExists = players.some(p => p.id !== id && p.number === editNumber.trim() && p.isActive);
+    const numExists = players.some(p => {
+      const pNum = /^\d+$/.test(String(p.number).trim()) ? String(parseInt(String(p.number).trim(), 10)) : String(p.number).trim();
+      return p.id !== id && pNum === normalizedEditNumber && p.isActive;
+    });
     if (numExists) {
-      setError(`El dorsal #${editNumber} ya está en uso.`);
+      setError(`El dorsal #${normalizedEditNumber} ya está en uso.`);
       return;
     }
 
@@ -500,7 +482,7 @@ export default function PlayerManager({
       id,
       name: editName.trim(),
       alias: finalAlias,
-      number: editNumber.trim(),
+      number: normalizedEditNumber,
       position: editPosition,
       birthDate: editBirthDate || '',
       dominantLeg: editDominantLeg || 'Diestra',
@@ -566,7 +548,7 @@ export default function PlayerManager({
           <div className="relative w-9 h-9 bg-white rounded-full border border-[#FFD700] flex items-center justify-center p-1 shrink-0 shadow-sm">
             <img
               referrerPolicy="no-referrer"
-              src="https://api.clupik.com/clubs/10590/images/navbar.png"
+              src="./logo.png"
               alt="FS Talavera"
               className="w-full h-full object-contain"
             />
@@ -609,7 +591,7 @@ export default function PlayerManager({
               setPdfExportFilter('oficial');
               setPdfExportModal({ open: true, mode: 'all' });
             }}
-            disabled={players.length === 0}
+            disabled={players.filter(p => p.isActive).length === 0}
             id="btn-export-all-player-dossiers-pdf"
             className="inline-flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider transition border border-slate-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
           >
@@ -620,14 +602,7 @@ export default function PlayerManager({
           <button
             onClick={() => {
               if (!showForm) {
-                setName('');
-                setAlias('');
-                setNumber('');
-                setPosition('');
-                setBirthDate('');
-                setDominantLeg('');
-                setPhoto('');
-                setError(null);
+                resetAddForm();
               }
               setShowForm(!showForm);
             }}
@@ -2030,7 +2005,7 @@ export default function PlayerManager({
                   <h3 className="font-black text-slate-900 text-base">
                     {pdfExportModal.mode === 'single'
                       ? `Exportar Ficha: ${pdfExportModal.player?.alias || pdfExportModal.player?.name}`
-                      : 'Exportar Dossier de Plantilla'}
+                      : `Exportar Dossier de Plantilla${activeTeamName ? ` · ${activeTeamName}` : ''}`}
                   </h3>
                   <p className="text-xs text-slate-500">Selecciona el tipo de partidos para el informe PDF</p>
                 </div>

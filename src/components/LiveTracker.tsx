@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, RotateCcw, Save, Flame, User, AlertTriangle, Shield, Check, Plus, Minus, Users, Undo2, Trash2 } from 'lucide-react';
-import { Player, LiveMatchState, LivePlayerState, Match, PositionType, ShotEvent, RotationEvent, GOAL_TYPES, GoalType } from '../types';
+import { Player, PlayerPerformance, LiveMatchState, LivePlayerState, Match, PositionType, ShotEvent, RotationEvent, GOAL_TYPES, GoalType } from '../types';
 import { exportMatchToPDF } from '../utils/pdfGenerator';
 import { consolidateRotationEvents, getDisambiguatedPlayerLabel } from '../utils/lineupAnalytics';
 
@@ -14,6 +14,7 @@ interface LiveTrackerProps {
   onSaveMatch: (match: Omit<Match, 'id'>) => void;
   initialLiveState?: LiveMatchState | null;
   onSaveLiveDraft?: (state: LiveMatchState) => void;
+  onClearLiveDraft?: () => void;
   activeTeamId?: string;
   activeSeasonId?: string;
   activeTeamName?: string;
@@ -24,6 +25,7 @@ export default function LiveTracker({
   onSaveMatch,
   initialLiveState,
   onSaveLiveDraft,
+  onClearLiveDraft,
   activeTeamId,
   activeSeasonId,
   activeTeamName
@@ -69,7 +71,9 @@ export default function LiveTracker({
       rivalFouls2ndHalf: 0,
       shotsEvents: [],
       titulares: [],
+      initialTitulares: [],
       suplentes: [],
+      activeGoalkeeperId: '',
       isPreMatch: true, // Draft selection lobby
       periodDurationMinutes: 20,
       attackDirection: 'derecha',
@@ -88,45 +92,76 @@ export default function LiveTracker({
 
   const [matchState, setMatchState] = useState<LiveMatchState>(() => {
     if (initialLiveState) {
-      // Clean or patch key missing attributes
-      const cloned = { ...initialLiveState };
-      
-      // Patch top-level properties with defaults if they don't exist
-      cloned.rival = cloned.rival || '';
-      cloned.matchType = cloned.matchType || 'oficial';
-      cloned.jornada = cloned.jornada || (cloned.matchType === 'oficial' ? 1 : undefined);
-      cloned.date = cloned.date || new Date().toISOString().split('T')[0];
-      cloned.goalsFor = cloned.goalsFor ?? 0;
-      cloned.goalsAgainst = cloned.goalsAgainst ?? 0;
-      cloned.teamShotsUnattributed = cloned.teamShotsUnattributed ?? 0;
-      cloned.teamYellowsStaff = cloned.teamYellowsStaff ?? 0;
-      cloned.playersState = cloned.playersState || {};
-      cloned.matchStartTime = cloned.matchStartTime ?? null;
-      cloned.overallSeconds = cloned.overallSeconds ?? 1200;
-      cloned.half = cloned.half || 1;
-      cloned.rivalColor = cloned.rivalColor || '#dc2626';
-      cloned.talaveraKit = cloned.talaveraKit || '1ª Equipación';
-      cloned.localFouls1stHalf = cloned.localFouls1stHalf ?? 0;
-      cloned.rivalFouls1stHalf = cloned.rivalFouls1stHalf ?? 0;
-      cloned.localFouls2ndHalf = cloned.localFouls2ndHalf ?? 0;
-      cloned.rivalFouls2ndHalf = cloned.rivalFouls2ndHalf ?? 0;
-      cloned.shotsEvents = cloned.shotsEvents || [];
-      cloned.titulares = cloned.titulares || [];
-      // Clean any accidental duplicate between titulares and suplentes
-      cloned.suplentes = (cloned.suplentes || []).filter(id => !cloned.titulares.includes(id));
-      cloned.isPreMatch = cloned.isPreMatch ?? true;
-      cloned.periodDurationMinutes = cloned.periodDurationMinutes ?? 20;
-      cloned.attackDirection = cloned.attackDirection || 'derecha';
-      cloned.timeout1stHalfCalled = cloned.timeout1stHalfCalled ?? false;
-      cloned.timeout2ndHalfCalled = cloned.timeout2ndHalfCalled ?? false;
-      cloned.localTimeout1stHalfCalled = cloned.localTimeout1stHalfCalled ?? false;
-      cloned.localTimeout2ndHalfCalled = cloned.localTimeout2ndHalfCalled ?? false;
-      cloned.rivalTimeout1stHalfCalled = cloned.rivalTimeout1stHalfCalled ?? false;
-      cloned.rivalTimeout2ndHalfCalled = cloned.rivalTimeout2ndHalfCalled ?? false;
-      cloned.penaltyTimers = cloned.penaltyTimers || [];
-      cloned.teamId = cloned.teamId || activeTeamId;
-      cloned.seasonId = cloned.seasonId || activeSeasonId;
-      cloned.rotationEvents = cloned.rotationEvents || [];
+      // Deep copy playersState to avoid mutating parent draft state in-place
+      const clonedPlayersState: Record<string, LivePlayerState> = {};
+      if (initialLiveState.playersState) {
+        Object.entries(initialLiveState.playersState).forEach(([pid, ps]) => {
+          clonedPlayersState[pid] = {
+            ...ps,
+            shots: ps.shots ?? 0,
+            goals: ps.goals ?? 0,
+            yellows: ps.yellows ?? 0,
+            redCard: ps.redCard ?? false,
+            secondsPlayed: ps.secondsPlayed ?? 0,
+            currentShiftSeconds: ps.currentShiftSeconds ?? 0,
+            saves: ps.saves ?? 0,
+            goalsConceded: ps.goalsConceded ?? 0
+          };
+        });
+      }
+
+      const cloned: LiveMatchState = {
+        ...initialLiveState,
+        rival: initialLiveState.rival || '',
+        matchType: initialLiveState.matchType || 'oficial',
+        jornada: initialLiveState.jornada || ((initialLiveState.matchType || 'oficial') === 'oficial' ? 1 : undefined),
+        date: initialLiveState.date || new Date().toISOString().split('T')[0],
+        goalsFor: initialLiveState.goalsFor ?? 0,
+        goalsAgainst: initialLiveState.goalsAgainst ?? 0,
+        teamShotsUnattributed: initialLiveState.teamShotsUnattributed ?? 0,
+        teamYellowsStaff: initialLiveState.teamYellowsStaff ?? 0,
+        playersState: clonedPlayersState,
+        matchStartTime: initialLiveState.matchStartTime ?? null,
+        overallSeconds: initialLiveState.overallSeconds ?? 1200,
+        half: initialLiveState.half || 1,
+        rivalColor: initialLiveState.rivalColor || '#dc2626',
+        talaveraKit: initialLiveState.talaveraKit || '1ª Equipación',
+        localFouls1stHalf: initialLiveState.localFouls1stHalf ?? 0,
+        rivalFouls1stHalf: initialLiveState.rivalFouls1stHalf ?? 0,
+        localFouls2ndHalf: initialLiveState.localFouls2ndHalf ?? 0,
+        rivalFouls2ndHalf: initialLiveState.rivalFouls2ndHalf ?? 0,
+        shotsEvents: initialLiveState.shotsEvents || [],
+        titulares: initialLiveState.titulares || [],
+        initialTitulares: initialLiveState.initialTitulares || (initialLiveState.titulares ? [...initialLiveState.titulares] : []),
+        suplentes: (initialLiveState.suplentes || []).filter(id => !(initialLiveState.titulares || []).includes(id)),
+        activeGoalkeeperId: initialLiveState.activeGoalkeeperId || '',
+        isPreMatch: initialLiveState.isPreMatch ?? true,
+        periodDurationMinutes: initialLiveState.periodDurationMinutes ?? 20,
+        attackDirection: initialLiveState.attackDirection || 'derecha',
+        timeout1stHalfCalled: initialLiveState.timeout1stHalfCalled ?? false,
+        timeout2ndHalfCalled: initialLiveState.timeout2ndHalfCalled ?? false,
+        localTimeout1stHalfCalled: initialLiveState.localTimeout1stHalfCalled ?? false,
+        localTimeout2ndHalfCalled: initialLiveState.localTimeout2ndHalfCalled ?? false,
+        rivalTimeout1stHalfCalled: initialLiveState.rivalTimeout1stHalfCalled ?? false,
+        rivalTimeout2ndHalfCalled: initialLiveState.rivalTimeout2ndHalfCalled ?? false,
+        penaltyTimers: initialLiveState.penaltyTimers || [],
+        teamId: initialLiveState.teamId || activeTeamId,
+        seasonId: initialLiveState.seasonId || activeSeasonId,
+        rotationEvents: initialLiveState.rotationEvents || []
+      };
+
+      if (cloned.isPreMatch) {
+        const eligibleIds = new Set(
+          players
+            .filter(p => p.isActive && p.status !== 'baja' && p.status !== 'lesionado' && p.status !== 'sancionado')
+            .map(p => p.id)
+        );
+        cloned.titulares = cloned.titulares.map(id => (id && eligibleIds.has(id) ? id : ''));
+        if (cloned.titulares.every(id => !id)) {
+          cloned.titulares = [];
+        }
+        cloned.suplentes = cloned.suplentes.filter(id => eligibleIds.has(id) && !cloned.titulares.includes(id));
+      }
 
       players.forEach(p => {
         if (!cloned.playersState[p.id]) {
@@ -143,16 +178,6 @@ export default function LiveTracker({
             saves: 0,
             goalsConceded: 0
           };
-        } else {
-          const ps = cloned.playersState[p.id];
-          ps.shots = ps.shots ?? 0;
-          ps.goals = ps.goals ?? 0;
-          ps.yellows = ps.yellows ?? 0;
-          ps.redCard = ps.redCard ?? false;
-          ps.secondsPlayed = ps.secondsPlayed ?? 0;
-          ps.currentShiftSeconds = ps.currentShiftSeconds ?? 0;
-          ps.saves = ps.saves ?? 0;
-          ps.goalsConceded = ps.goalsConceded ?? 0;
         }
       });
       return cloned;
@@ -167,9 +192,8 @@ export default function LiveTracker({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [clickCoords, setClickCoords] = useState<{ x: number; y: number } | null>(null);
   const [shotStep, setShotStep] = useState<'team_select' | 'player_select' | 'result_local' | 'result_rival' | 'goal_type' | null>(null);
-  const [tempLocalPlayerId, setTempLocalPlayerId] = useState<string | null>(null);
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
-  const [activeGoalkeeperId, setActiveGoalkeeperId] = useState<string>('');
+  const activeGoalkeeperId = matchState.activeGoalkeeperId || '';
 
   const [subInPlayerId, setSubInPlayerId] = useState<string | null>(null);
   const [showFirstHalfSummaryModal, setShowFirstHalfSummaryModal] = useState(false);
@@ -179,37 +203,129 @@ export default function LiveTracker({
   const [editingLocalScore, setEditingLocalScore] = useState(false);
   const [editingRivalScore, setEditingRivalScore] = useState(false);
 
-  // Sincronizar el borrador del Live Match periódicamente usando ref para evitar bucles de renderizado
+  const isNaturalGoalkeeper = (p: Player) =>
+    p.position === 'Portero/a' || Boolean(p.position?.toLowerCase().includes('porter'));
+
+  const pickBestGoalkeeper = (
+    candidateIds: string[],
+    playersList: Player[],
+    playersStateMap?: Record<string, LivePlayerState>
+  ): string => {
+    const eligibleIds = candidateIds.filter(id => {
+      if (!id) return false;
+      if (!playersStateMap) return true;
+      const ps = playersStateMap[id];
+      return Boolean(ps && ps.isOnCourt && !ps.redCard && (ps.yellows ?? 0) < 2);
+    });
+    if (eligibleIds.length === 0) return '';
+
+    const firstPlayer = playersList.find(p => p.id === eligibleIds[0]);
+    if (firstPlayer && isNaturalGoalkeeper(firstPlayer)) {
+      return firstPlayer.id;
+    }
+
+    const naturalGKId = eligibleIds.find(id => {
+      const p = playersList.find(pl => pl.id === id);
+      return Boolean(p && isNaturalGoalkeeper(p));
+    });
+
+    return naturalGKId || eligibleIds[0];
+  };
+
+  // Ensure any player added or synced while LiveTracker stays mounted has initialized LivePlayerState
+  useEffect(() => {
+    setMatchState(prev => {
+      const missing = players.filter(p => !prev.playersState[p.id]);
+      if (missing.length === 0) return prev;
+      const nextPlayersState = { ...prev.playersState };
+      missing.forEach(p => {
+        nextPlayersState[p.id] = {
+          playerId: p.id,
+          isOnCourt: false,
+          shots: 0,
+          goals: 0,
+          yellows: 0,
+          redCard: false,
+          secondsPlayed: 0,
+          currentShiftSeconds: 0,
+          timerStartTimestamp: null,
+          saves: 0,
+          goalsConceded: 0
+        };
+      });
+      return {
+        ...prev,
+        playersState: nextPlayersState
+      };
+    });
+  }, [players]);
+
+  // Sincronizar el borrador del Live Match usando ref solo cuando hay datos reales de partido
   const onSaveLiveDraftRef = useRef(onSaveLiveDraft);
   useEffect(() => {
     onSaveLiveDraftRef.current = onSaveLiveDraft;
   }, [onSaveLiveDraft]);
 
   useEffect(() => {
-    if (onSaveLiveDraftRef.current) {
+    const hasMeaningfulState =
+      !matchState.isPreMatch ||
+      matchState.rival.trim() !== '' ||
+      matchState.titulares.some(Boolean) ||
+      matchState.suplentes.length > 0 ||
+      matchState.shotsEvents.length > 0;
+    if (hasMeaningfulState && onSaveLiveDraftRef.current) {
       onSaveLiveDraftRef.current(matchState);
     }
   }, [matchState]);
 
-  const isNaturalGoalkeeper = (p: Player) =>
-    p.position === 'Portero/a' || Boolean(p.position?.toLowerCase().includes('porter'));
-
-  // Set active goalkeeper initially prioritizing natural goalkeeper among starters
+  // Recover/repair active goalkeeper only if empty, off court, or expelled
   useEffect(() => {
-    if (!matchState.isPreMatch && matchState.titulares.length > 0 && !activeGoalkeeperId) {
-      const gkStarter = players.find(p => matchState.titulares.includes(p.id) && isNaturalGoalkeeper(p));
-      setActiveGoalkeeperId(gkStarter ? gkStarter.id : matchState.titulares[0]);
+    if (matchState.isPreMatch) return;
+    const currentGK = matchState.activeGoalkeeperId;
+    const currentGKState = currentGK ? matchState.playersState[currentGK] : undefined;
+    const isCurrentValid = Boolean(
+      currentGK &&
+      currentGKState?.isOnCourt &&
+      !currentGKState.redCard &&
+      (currentGKState.yellows ?? 0) < 2
+    );
+    if (!isCurrentValid) {
+      const onCourtIds = Object.keys(matchState.playersState).filter(
+        pid =>
+          matchState.playersState[pid]?.isOnCourt &&
+          !matchState.playersState[pid]?.redCard &&
+          (matchState.playersState[pid]?.yellows ?? 0) < 2
+      );
+      if (onCourtIds.length > 0) {
+        const orderedCandidates = [
+          ...(matchState.titulares || []).filter(id => onCourtIds.includes(id)),
+          ...onCourtIds
+        ];
+        const fallbackGK = pickBestGoalkeeper(orderedCandidates, players, matchState.playersState);
+        if (fallbackGK && fallbackGK !== currentGK) {
+          setMatchState(prev => ({
+            ...prev,
+            activeGoalkeeperId: fallbackGK
+          }));
+        }
+      }
     }
-  }, [matchState.isPreMatch, matchState.titulares, activeGoalkeeperId, players]);
+  }, [matchState.isPreMatch, matchState.activeGoalkeeperId, matchState.playersState, matchState.titulares, players]);
 
-  // Ticking countdown clock
+  // Stop timer and notify cleanly outside state updater when clock reaches 00:00
+  useEffect(() => {
+    if (!matchState.isPreMatch && isTimerRunning && matchState.overallSeconds <= 0) {
+      setIsTimerRunning(false);
+      alert(`¡Final del juego de la ${matchState.half}ª Parte! Por favor, revisa las estadísticas o avanza a la siguiente sección.`);
+    }
+  }, [isTimerRunning, matchState.overallSeconds, matchState.half, matchState.isPreMatch]);
+
+  // Ticking countdown clock (pure state updater for React StrictMode safety)
   useEffect(() => {
     if (isTimerRunning) {
       timerRef.current = setInterval(() => {
         setMatchState(prev => {
           if (prev.overallSeconds <= 0) {
-            setIsTimerRunning(false);
-            alert(`¡Final del juego de la ${prev.half}ª Parte! Por favor, revisa las estadísticas o avanza a la siguiente sección.`);
             return prev;
           }
 
@@ -235,7 +351,7 @@ export default function LiveTracker({
 
           return {
             ...prev,
-            overallSeconds: prev.overallSeconds - 1,
+            overallSeconds: Math.max(0, prev.overallSeconds - 1),
             playersState: updatedPlayers,
             penaltyTimers: updatedPenalties
           };
@@ -431,7 +547,7 @@ export default function LiveTracker({
   useEffect(() => {
     if (matchState.isPreMatch) return;
     drawPitch();
-  }, [matchState.shotsEvents, matchState.half, matchState.rivalColor, matchState.talaveraKit, matchState.attackDirection, clickCoords]);
+  }, [matchState.isPreMatch, matchState.rival, matchState.shotsEvents, matchState.half, matchState.rivalColor, matchState.talaveraKit, matchState.attackDirection, clickCoords]);
 
   // Draw Core Athletic Futsal Court Programmatically
   const drawPitch = () => {
@@ -721,23 +837,24 @@ export default function LiveTracker({
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    if (rect.width <= 0 || rect.height <= 0) return;
 
-    // Convert to percentage scaled inside boundary margins
+    // Scale pointer coordinates from CSS pixels to logical canvas pixels before subtracting m = 20
+    const canvasX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const canvasY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
     const m = 20;
-    const cw = rect.width - 2 * m;
-    const ch = rect.height - 2 * m;
+    const cw = canvas.width - 2 * m;
+    const ch = canvas.height - 2 * m;
 
-    const pctX = ((clickX - m) / cw) * 100;
-    const pctY = ((clickY - m) / ch) * 100;
+    const pctX = ((canvasX - m) / cw) * 100;
+    const pctY = ((canvasY - m) / ch) * 100;
 
     // Protection to restrict inside field boundaries
     if (pctX < 0 || pctX > 100 || pctY < 0 || pctY > 100) return;
 
     setClickCoords({ x: pctX, y: pctY });
     setShotStep('team_select');
-    setTempLocalPlayerId(null);
     setSelectedSubjectId(null);
   };
 
@@ -753,27 +870,35 @@ export default function LiveTracker({
     setMatchState(prev => {
       const maxSecs = (prev.periodDurationMinutes ?? 20) * 60;
       const nextSeconds = Math.max(0, Math.min(maxSecs, prev.overallSeconds + secDelta));
-      const appliedDelta = nextSeconds - prev.overallSeconds; // Positive if we increased remaining time, negative if we decreased remaining time
+      const appliedDelta = nextSeconds - prev.overallSeconds; // Positive if remaining increased, negative if decreased
 
       const updatedPlayers = { ...prev.playersState };
       Object.keys(updatedPlayers).forEach(pid => {
         const ps = updatedPlayers[pid];
         if (ps.isOnCourt && !ps.redCard) {
-          // If we increased remaining time (appliedDelta > 0), players played LESS, so we subtract from secondsPlayed.
-          // If we decreased remaining time (appliedDelta < 0), players played MORE, so we add to secondsPlayed.
           const adjustment = -appliedDelta;
+          const prevShift = ps.currentShiftSeconds ?? 0;
+          const clampedAdjustment = adjustment < 0 ? Math.max(adjustment, -prevShift) : adjustment;
           updatedPlayers[pid] = {
             ...ps,
-            secondsPlayed: Math.max(0, ps.secondsPlayed + adjustment),
-            currentShiftSeconds: Math.max(0, (ps.currentShiftSeconds ?? ps.secondsPlayed) + adjustment)
+            secondsPlayed: Math.max(0, ps.secondsPlayed + clampedAdjustment),
+            currentShiftSeconds: Math.max(0, prevShift + clampedAdjustment)
           };
         }
       });
 
+      const updatedPenalties = (prev.penaltyTimers || [])
+        .map(pt => ({
+          ...pt,
+          secondsRemaining: Math.max(0, pt.secondsRemaining + appliedDelta)
+        }))
+        .filter(pt => pt.secondsRemaining > 0);
+
       return {
         ...prev,
         overallSeconds: nextSeconds,
-        playersState: updatedPlayers
+        playersState: updatedPlayers,
+        penaltyTimers: updatedPenalties
       };
     });
   };
@@ -788,34 +913,53 @@ export default function LiveTracker({
       alert('Por favor, introduce una Jornada de liga válida para los partidos oficiales.');
       return;
     }
-    if (matchState.titulares.filter(Boolean).length !== 5) {
-      alert('Debes convocar exactamente a 5 "Titulares" como quinteto inicial en cancha.');
+
+    const eligibleIds = new Set(
+      players
+        .filter(p => p.isActive && p.status !== 'baja' && p.status !== 'lesionado' && p.status !== 'sancionado')
+        .map(p => p.id)
+    );
+    const validTitulares = matchState.titulares.filter(id => Boolean(id && eligibleMapHas(eligibleIds, id)));
+
+    if (validTitulares.length !== 5 || new Set(validTitulares).size !== 5) {
+      alert('Debes convocar exactamente a 5 "Titulares" válidos y disponibles como quinteto inicial en cancha.');
       return;
     }
-    if (matchState.matchType === 'oficial' && matchState.suplentes.length > 9) {
+    const validSuplentes = matchState.suplentes.filter(id => eligibleIds.has(id) && !validTitulares.includes(id));
+    if (matchState.matchType === 'oficial' && validSuplentes.length > 9) {
       alert('El número reglamentario máximo de "Suplentes" es de 9 jugadores/as.');
       return;
     }
 
+    function eligibleMapHas(setIds: Set<string>, id: string) {
+      return setIds.has(id);
+    }
+
     // Initialize court state
     setMatchState(prev => {
-      // Safety cleanup: remove any suplente that ended up also as titular
-      const cleanSuplentes = prev.suplentes.filter(id => !prev.titulares.includes(id));
+      const startIds = prev.titulares.filter(id => Boolean(id && eligibleIds.has(id)));
+      const cleanSuplentes = prev.suplentes.filter(id => eligibleIds.has(id) && !startIds.includes(id));
 
-      const updatedPlayers = { ...prev.playersState };
-      
-      // All starters marked on court, others off court
-      Object.keys(updatedPlayers).forEach(pId => {
+      const updatedPlayers: Record<string, LivePlayerState> = {};
+      const allIds = new Set([...players.map(p => p.id), ...startIds, ...cleanSuplentes]);
+      allIds.forEach(pId => {
         updatedPlayers[pId] = {
-          ...updatedPlayers[pId],
-          isOnCourt: prev.titulares.includes(pId),
+          playerId: pId,
+          isOnCourt: startIds.includes(pId),
+          shots: 0,
+          goals: 0,
+          yellows: 0,
+          redCard: false,
           secondsPlayed: 0,
-          currentShiftSeconds: 0
+          secondsPlayed1st: 0,
+          currentShiftSeconds: 0,
+          timerStartTimestamp: null,
+          saves: 0,
+          goalsConceded: 0
         };
       });
 
       const initSecs = (prev.periodDurationMinutes ?? 20) * 60;
-      const startIds = prev.titulares.filter(Boolean);
       const nowTs = Date.now();
       const initialRot: RotationEvent = {
         id: `rot-${nowTs}-h1`,
@@ -827,9 +971,14 @@ export default function LiveTracker({
         timestamp: nowTs
       };
 
+      const initialGK = pickBestGoalkeeper(startIds, players);
+
       return {
         ...prev,
+        titulares: startIds,
+        initialTitulares: startIds,
         suplentes: cleanSuplentes,
+        activeGoalkeeperId: initialGK,
         playersState: updatedPlayers,
         isPreMatch: false,
         overallSeconds: initSecs,
@@ -840,10 +989,6 @@ export default function LiveTracker({
         rotationEvents: [initialRot]
       };
     });
-
-    // Prioritize natural goalkeeper among starters, fallback to starter position 1
-    const gkStarter = players.find(p => matchState.titulares.includes(p.id) && isNaturalGoalkeeper(p));
-    setActiveGoalkeeperId(gkStarter ? gkStarter.id : matchState.titulares[0]);
   };
 
   const handleSetSecondHalfStarter = (idx: number, playerId: string) => {
@@ -871,20 +1016,25 @@ export default function LiveTracker({
         timestamp: nowTs
       };
 
+      const cleanSelected = selectedStarters.filter(
+        id => Boolean(id && !prev.playersState[id]?.redCard && (prev.playersState[id]?.yellows ?? 0) < 2)
+      );
       const updatedPlayersState = { ...prev.playersState };
-      
-      // All players in the match get updated isOnCourt based on whether they are in the selectedStarters list
+
+      // All players in the match get updated isOnCourt based on whether they are in cleanSelected
       Object.keys(updatedPlayersState).forEach(pId => {
+        const isExp = updatedPlayersState[pId].redCard || updatedPlayersState[pId].yellows >= 2;
         updatedPlayersState[pId] = {
           ...updatedPlayersState[pId],
           secondsPlayed1st: updatedPlayersState[pId].secondsPlayed || 0, // Store 1st half seconds played
           secondsPlayed: 0, // Restart time tracking from 0 for 2nd half control
           currentShiftSeconds: 0,
-          isOnCourt: selectedStarters.includes(pId) && !updatedPlayersState[pId].redCard
+          isOnCourt: cleanSelected.includes(pId) && !isExp
         };
       });
 
-      const startHalf2Ids = selectedStarters.filter(id => id && !updatedPlayersState[id]?.redCard);
+      const newGKId = pickBestGoalkeeper(cleanSelected, players, updatedPlayersState);
+
       const startHalf2Secs = durationMin * 60;
       const startHalf2Event: RotationEvent = {
         id: `rot-${nowTs + 1}-h2`,
@@ -892,33 +1042,22 @@ export default function LiveTracker({
         timeString: displayChronometer(startHalf2Secs),
         secondsRemaining: startHalf2Secs,
         type: 'initial_lineup',
-        onCourtIds: startHalf2Ids,
+        onCourtIds: cleanSelected,
         timestamp: nowTs + 1
       };
 
-      // Find if we have a goalkeeper in the selected starters
-      let newGKId = '';
-      const gkPlayer = players.find(p => selectedStarters.includes(p.id) && (p.position === 'Portero/a' || p.position?.toLowerCase().includes('porter')));
-      if (gkPlayer) {
-        newGKId = gkPlayer.id;
-      } else if (selectedStarters.length > 0) {
-        newGKId = selectedStarters[0];
-      }
-
-      setActiveGoalkeeperId(newGKId);
-
       // Recompute the bench for the 2nd half: everyone previously called up
-      // (starters + subs from the 1st half) who is NOT a starter now goes to
-      // the bench, so nobody vanishes from the squad.
+      // (starters + subs from the 1st half) who is NOT a starter now goes to the bench
       const previousConvocatedIds = new Set([...(prev.titulares || []), ...(prev.suplentes || [])]);
-      const updatedSuplentes = Array.from(previousConvocatedIds).filter(id => !selectedStarters.includes(id));
+      const updatedSuplentes = Array.from(previousConvocatedIds).filter(id => !cleanSelected.includes(id));
 
       return {
         ...prev,
         half: 2,
         attackDirection: newAttackDir,
-        titulares: selectedStarters,
+        titulares: cleanSelected,
         suplentes: updatedSuplentes,
+        activeGoalkeeperId: newGKId,
         overallSeconds: startHalf2Secs,
         playersState: updatedPlayersState,
         rotationEvents: consolidateRotationEvents(
@@ -935,124 +1074,138 @@ export default function LiveTracker({
   // Substitutions / Rotation coordination
   const handleToggleSwapPlayer = (id: string) => {
     const ps = matchState.playersState[id];
-    if (!ps) return;
+    if (!ps || ps.isOnCourt || ps.redCard || ps.yellows >= 2) return;
 
-    if (ps.isOnCourt) {
-      // Disallowed per requested workflow: can only sub in from the bench
+    const hasActivePenalty = (matchState.penaltyTimers || []).some(pt => pt.secondsRemaining > 0);
+    if (hasActivePenalty) {
+      alert("No se puede introducir ninguna jugadora mientras esté activo el tiempo de expulsión (2 min).");
       return;
+    }
+
+    const onCourtIds = Object.entries(matchState.playersState)
+      .filter(([_, value]) => (value as LivePlayerState).isOnCourt)
+      .map(([pId]) => pId);
+
+    const enteringPlayer = players.find(p => p.id === id);
+    const isEnteringGK = Boolean(enteringPlayer && isNaturalGoalkeeper(enteringPlayer));
+
+    if (onCourtIds.length >= 5) {
+      setSubInPlayerId(id);
     } else {
-      const hasActivePenalty = (matchState.penaltyTimers || []).some(pt => pt.secondsRemaining > 0);
-      if (hasActivePenalty) {
-        alert("No se puede introducir ninguna jugadora mientras esté activo el tiempo de expulsión (2 min).");
-        return;
-      }
+      setMatchState(prev => {
+        const prevPs = prev.playersState[id];
+        if (!prevPs || prevPs.isOnCourt || prevPs.redCard || prevPs.yellows >= 2) return prev;
+        if ((prev.penaltyTimers || []).some(pt => pt.secondsRemaining > 0)) return prev;
 
-      // Entering court from bench: find how many are current active on court
-      const onCourtIds = Object.entries(matchState.playersState)
-        .filter(([_, value]) => (value as LivePlayerState).isOnCourt)
-        .map(([pId]) => pId);
+        const prevOnCourtIds = Object.keys(prev.playersState).filter(pid => prev.playersState[pid]?.isOnCourt);
+        if (prevOnCourtIds.length >= 5) return prev;
 
-      const enteringPlayer = players.find(p => p.id === id);
-      const isEnteringGK = enteringPlayer && (enteringPlayer.position === 'Portero/a' || enteringPlayer.position?.toLowerCase().includes('porter'));
-
-      if (onCourtIds.length >= 5) {
-        // Force choosing who to swap out
-        setSubInPlayerId(id);
-      } else {
-        // Direct enter
-        if (isEnteringGK) {
-          setActiveGoalkeeperId(id);
-        }
-        setMatchState(prev => {
-          let updatedTitulares = [...(prev.titulares || [])];
-          let updatedSuplentes = (prev.suplentes || []).filter(sId => sId !== id);
-          const inactiveIndex = updatedTitulares.findIndex(tId => !prev.playersState[tId]?.isOnCourt);
-          if (inactiveIndex !== -1) {
-            const replacedId = updatedTitulares[inactiveIndex];
-            updatedTitulares[inactiveIndex] = id;
-            // Send the replaced player back to the bench so they can re-enter later
-            if (replacedId && replacedId !== id && !updatedSuplentes.includes(replacedId)) {
-              updatedSuplentes = [...updatedSuplentes, replacedId];
-            }
-          } else if (updatedTitulares.length < 5 && !updatedTitulares.includes(id)) {
-            updatedTitulares.push(id);
+        let updatedTitulares = [...(prev.titulares || [])];
+        let updatedSuplentes = (prev.suplentes || []).filter(sId => sId !== id);
+        const inactiveIndex = updatedTitulares.findIndex(tId => !prev.playersState[tId]?.isOnCourt);
+        if (inactiveIndex !== -1) {
+          const replacedId = updatedTitulares[inactiveIndex];
+          updatedTitulares[inactiveIndex] = id;
+          if (replacedId && replacedId !== id && !updatedSuplentes.includes(replacedId)) {
+            updatedSuplentes = [...updatedSuplentes, replacedId];
           }
+        } else if (updatedTitulares.length < 5 && !updatedTitulares.includes(id)) {
+          updatedTitulares.push(id);
+        }
 
-          const updatedPlayersState = {
-            ...prev.playersState,
-            [id]: {
-              ...prev.playersState[id],
-              isOnCourt: true,
-              currentShiftSeconds: 0
-            }
-          };
-          const nextOnCourtIds = Object.keys(updatedPlayersState).filter(pid => updatedPlayersState[pid]?.isOnCourt);
-          const nowTs = Date.now();
-          const enterEvent: RotationEvent = {
-            id: `rot-${nowTs}-ent`,
-            half: prev.half,
-            timeString: displayChronometer(prev.overallSeconds),
-            secondsRemaining: prev.overallSeconds,
-            type: 'enter',
-            inPlayerId: id,
-            onCourtIds: nextOnCourtIds,
-            timestamp: nowTs
-          };
+        const updatedPlayersState = {
+          ...prev.playersState,
+          [id]: {
+            ...prevPs,
+            isOnCourt: true,
+            currentShiftSeconds: 0
+          }
+        };
+        const nextOnCourtIds = Object.keys(updatedPlayersState).filter(pid => updatedPlayersState[pid]?.isOnCourt);
+        const prevGK = prev.activeGoalkeeperId;
+        const prevGKValid = Boolean(prevGK && updatedPlayersState[prevGK]?.isOnCourt && !updatedPlayersState[prevGK]?.redCard);
+        const prevGKPlayer = prevGK ? players.find(p => p.id === prevGK) : undefined;
+        const prevGKIsNatural = Boolean(prevGKValid && prevGKPlayer && isNaturalGoalkeeper(prevGKPlayer));
 
-          return {
-            ...prev,
-            titulares: updatedTitulares,
-            suplentes: updatedSuplentes,
-            playersState: updatedPlayersState,
-            rotationEvents: consolidateRotationEvents(
-              [...(prev.rotationEvents || []), enterEvent],
-              prev.shotsEvents
-            )
-          };
-        });
-      }
+        let nextGK = prevGK || '';
+        if (!prevGKValid || (isEnteringGK && !prevGKIsNatural)) {
+          nextGK = id;
+        }
+
+        const nowTs = Date.now();
+        const enterEvent: RotationEvent = {
+          id: `rot-${nowTs}-ent`,
+          half: prev.half,
+          timeString: displayChronometer(prev.overallSeconds),
+          secondsRemaining: prev.overallSeconds,
+          type: 'enter',
+          inPlayerId: id,
+          onCourtIds: nextOnCourtIds,
+          timestamp: nowTs
+        };
+
+        return {
+          ...prev,
+          titulares: updatedTitulares,
+          suplentes: updatedSuplentes,
+          activeGoalkeeperId: nextGK,
+          playersState: updatedPlayersState,
+          rotationEvents: consolidateRotationEvents(
+            [...(prev.rotationEvents || []), enterEvent],
+            prev.shotsEvents
+          )
+        };
+      });
     }
   };
 
   // Execute substitution after choosing who goes out
   const handleExecuteSubstitution = (exitingPlayerId: string) => {
-    if (!subInPlayerId) return;
+    const enteringId = subInPlayerId;
+    if (!enteringId) return;
 
-    const enteringPlayer = players.find(p => p.id === subInPlayerId);
-    const isEnteringGK = enteringPlayer && (enteringPlayer.position === 'Portero/a' || enteringPlayer.position?.toLowerCase().includes('porter'));
+    const enteringPlayer = players.find(p => p.id === enteringId);
+    const isEnteringGK = Boolean(enteringPlayer && isNaturalGoalkeeper(enteringPlayer));
 
     setMatchState(prev => {
+      if (!prev.playersState[exitingPlayerId]?.isOnCourt || !prev.playersState[enteringId]) {
+        return prev;
+      }
+
       const updated = { ...prev.playersState };
+      updated[exitingPlayerId] = {
+        ...updated[exitingPlayerId],
+        isOnCourt: false,
+        currentShiftSeconds: 0
+      };
+      updated[enteringId] = {
+        ...updated[enteringId],
+        isOnCourt: true,
+        currentShiftSeconds: 0
+      };
 
-      // Stop/pause timer of exiting player, reset current stint
-      if (updated[exitingPlayerId]) {
-        updated[exitingPlayerId] = {
-          ...updated[exitingPlayerId],
-          isOnCourt: false,
-          currentShiftSeconds: 0
-        };
+      const prevGK = prev.activeGoalkeeperId;
+      const prevGKPlayer = prevGK ? players.find(p => p.id === prevGK) : undefined;
+      const prevGKIsNaturalOnCourt = Boolean(
+        prevGK &&
+        prevGK !== exitingPlayerId &&
+        updated[prevGK]?.isOnCourt &&
+        prevGKPlayer &&
+        isNaturalGoalkeeper(prevGKPlayer)
+      );
+
+      let nextActiveGK = prevGK || '';
+      if (prevGK === exitingPlayerId || !nextActiveGK || !updated[nextActiveGK]?.isOnCourt || (isEnteringGK && !prevGKIsNaturalOnCourt)) {
+        nextActiveGK = enteringId;
       }
 
-      // Start timer of entering player from ZERO for her new stint
-      if (updated[subInPlayerId]) {
-        updated[subInPlayerId] = {
-          ...updated[subInPlayerId],
-          isOnCourt: true,
-          currentShiftSeconds: 0
-        };
+      // Replace exiting player in titulares array, or append if missing
+      let updatedTitulares = (prev.titulares || []).map(id => (id === exitingPlayerId ? enteringId : id));
+      if (!updatedTitulares.includes(enteringId)) {
+        updatedTitulares = [...updatedTitulares, enteringId];
       }
 
-      // If entering player has the GK role, or if the exiting player was the active goalkeeper
-      if (isEnteringGK || activeGoalkeeperId === exitingPlayerId) {
-        setActiveGoalkeeperId(subInPlayerId);
-      }
-
-      // Replace exiting player in titulares array to maintain exact position order
-      const updatedTitulares = (prev.titulares || []).map(id => id === exitingPlayerId ? subInPlayerId : id);
-
-      // Send the exiting player back to the bench so they can re-enter later,
-      // and remove the entering player from the bench since they are now a starter.
-      const updatedSuplentes = (prev.suplentes || []).filter(id => id !== subInPlayerId);
+      const updatedSuplentes = (prev.suplentes || []).filter(id => id !== enteringId);
       if (exitingPlayerId && !updatedSuplentes.includes(exitingPlayerId)) {
         updatedSuplentes.push(exitingPlayerId);
       }
@@ -1065,7 +1218,7 @@ export default function LiveTracker({
         timeString: displayChronometer(prev.overallSeconds),
         secondsRemaining: prev.overallSeconds,
         type: 'substitution',
-        inPlayerId: subInPlayerId,
+        inPlayerId: enteringId,
         outPlayerId: exitingPlayerId,
         onCourtIds: nextOnCourtIds,
         timestamp: nowTs
@@ -1075,6 +1228,7 @@ export default function LiveTracker({
         ...prev,
         titulares: updatedTitulares,
         suplentes: updatedSuplentes,
+        activeGoalkeeperId: nextActiveGK,
         playersState: updated,
         rotationEvents: consolidateRotationEvents(
           [...(prev.rotationEvents || []), subEvent],
@@ -1097,11 +1251,14 @@ export default function LiveTracker({
 
     const coords = clickCoords;
     const pObj = localPlayerId ? players.find(p => p.id === localPlayerId) : undefined;
+    const shotTs = Date.now();
 
     setMatchState(prev => {
       const currentOnCourtIds = Object.keys(prev.playersState).filter(pid => prev.playersState[pid]?.isOnCourt);
+      const goalieId = prev.activeGoalkeeperId || (prev.titulares && prev.titulares[0]);
+
       const event: ShotEvent = {
-        id: `s-${Date.now()}`,
+        id: `s-${shotTs}`,
         x: coords.x,
         y: coords.y,
         team,
@@ -1109,6 +1266,8 @@ export default function LiveTracker({
         goalType,
         playerId: localPlayerId,
         playerNumber: pObj?.number,
+        goalkeeperId: team === 'rival' ? goalieId : undefined,
+        timestamp: shotTs,
         timeString: displayChronometer(prev.overallSeconds),
         half: prev.half,
         onCourtIds: currentOnCourtIds
@@ -1136,7 +1295,6 @@ export default function LiveTracker({
 
       // Update Goalkeeper stats on Rival action
       if (team === 'rival') {
-        const goalieId = activeGoalkeeperId || (prev.titulares && prev.titulares[0]);
         if (type === 'goal') {
           newGoalsAgainst += 1;
           // Conceded to goalie
@@ -1171,18 +1329,17 @@ export default function LiveTracker({
     // Clear coordinates dialogue pop-over
     setClickCoords(null);
     setShotStep(null);
-    setTempLocalPlayerId(null);
   };
 
-  // Undo last recorded shot event
+  // Undo last recorded shot event (only within active half, atomic inside setMatchState)
   const handleUndoLastShotVal = () => {
-    if (matchState.shotsEvents.length === 0) return;
-    const nextList = [...matchState.shotsEvents];
-    const removed = nextList.pop();
-
-    if (!removed) return;
-
     setMatchState(prev => {
+      if (prev.shotsEvents.length === 0) return prev;
+      const lastShot = prev.shotsEvents[prev.shotsEvents.length - 1];
+      if (!lastShot || lastShot.half !== prev.half) return prev;
+
+      const nextList = prev.shotsEvents.slice(0, -1);
+      const removed = lastShot;
       const updatedStats = { ...prev.playersState };
       let newGoalsFor = prev.goalsFor;
       let newGoalsAgainst = prev.goalsAgainst;
@@ -1201,23 +1358,24 @@ export default function LiveTracker({
         newGoalsFor = Math.max(0, newGoalsFor - 1);
       }
 
-      // Rollback Goalkeeper stats
+      // Rollback Goalkeeper stats against exact recorded goalkeeperId (with fallback)
       if (removed.team === 'rival') {
+        const gkId = removed.goalkeeperId || prev.activeGoalkeeperId || (prev.titulares && prev.titulares[0]);
         if (removed.type === 'goal') {
           newGoalsAgainst = Math.max(0, newGoalsAgainst - 1);
-          if (activeGoalkeeperId && updatedStats[activeGoalkeeperId]) {
-            const gk = updatedStats[activeGoalkeeperId];
-            updatedStats[activeGoalkeeperId] = {
+          if (gkId && updatedStats[gkId]) {
+            const gk = updatedStats[gkId];
+            updatedStats[gkId] = {
               ...gk,
-              goalsConceded: Math.max(0, gk.goalsConceded - 1)
+              goalsConceded: Math.max(0, (gk.goalsConceded || 0) - 1)
             };
           }
         } else if (removed.type === 'on_target') {
-          if (activeGoalkeeperId && updatedStats[activeGoalkeeperId]) {
-            const gk = updatedStats[activeGoalkeeperId];
-            updatedStats[activeGoalkeeperId] = {
+          if (gkId && updatedStats[gkId]) {
+            const gk = updatedStats[gkId];
+            updatedStats[gkId] = {
               ...gk,
-              saves: Math.max(0, gk.saves - 1)
+              saves: Math.max(0, (gk.saves || 0) - 1)
             };
           }
         }
@@ -1259,12 +1417,13 @@ export default function LiveTracker({
       const ps = prev.playersState[pId];
       if (!ps) return prev;
 
-      let val = Math.max(0, Math.min(2, ps.yellows + inc));
+      const val = Math.max(0, Math.min(2, ps.yellows + inc));
       let isRed = ps.redCard;
 
       if (val === 2) {
         isRed = true;
-      } else if (inc < 0 && val < 2) {
+      } else if (inc < 0 && ps.yellows === 2 && val < 2) {
+        // Only clear redCard if expulsion came from double yellow
         isRed = false;
       }
 
@@ -1275,7 +1434,7 @@ export default function LiveTracker({
       let nextPenaltyTimers = [...(prev.penaltyTimers || [])];
       if (isNewlyRed && wasOnCourt) {
         const playerInfo = players.find(p => p.id === pId);
-        const playerAlias = playerInfo ? (playerInfo.alias || playerInfo.name) : 'Jugadora';
+        const playerAlias = playerInfo ? (playerInfo.alias || playerInfo.name) : 'Jugador/a';
         const playerNumber = playerInfo ? playerInfo.number : '';
         nextPenaltyTimers.push({
           id: pId + '_' + Date.now(),
@@ -1298,9 +1457,14 @@ export default function LiveTracker({
         }
       };
 
+      const nextOnCourtIds = Object.keys(nextPlayersState).filter(pid => nextPlayersState[pid]?.isOnCourt);
+      let nextActiveGK = prev.activeGoalkeeperId || '';
+      if (isRed && nextActiveGK === pId) {
+        nextActiveGK = pickBestGoalkeeper(nextOnCourtIds, players, nextPlayersState);
+      }
+
       let nextRotationEvents = prev.rotationEvents || [];
       if (isNewlyRed && wasOnCourt) {
-        const nextOnCourtIds = Object.keys(nextPlayersState).filter(pid => nextPlayersState[pid]?.isOnCourt);
         const nowTs = Date.now();
         nextRotationEvents = consolidateRotationEvents(
           [
@@ -1322,6 +1486,7 @@ export default function LiveTracker({
 
       return {
         ...prev,
+        activeGoalkeeperId: nextActiveGK,
         penaltyTimers: nextPenaltyTimers,
         playersState: nextPlayersState,
         rotationEvents: nextRotationEvents
@@ -1339,7 +1504,7 @@ export default function LiveTracker({
       let nextPenaltyTimers = [...(prev.penaltyTimers || [])];
       if (isRedNow && ps.isOnCourt && !ps.redCard) {
         const playerInfo = players.find(p => p.id === pId);
-        const playerAlias = playerInfo ? (playerInfo.alias || playerInfo.name) : 'Jugadora';
+        const playerAlias = playerInfo ? (playerInfo.alias || playerInfo.name) : 'Jugador/a';
         const playerNumber = playerInfo ? playerInfo.number : '';
         nextPenaltyTimers.push({
           id: pId + '_' + Date.now(),
@@ -1356,14 +1521,20 @@ export default function LiveTracker({
         ...prev.playersState,
         [pId]: {
           ...ps,
+          yellows: !isRedNow && ps.yellows >= 2 ? 1 : ps.yellows,
           redCard: isRedNow,
           isOnCourt: isRedNow ? false : ps.isOnCourt
         }
       };
 
+      const nextOnCourtIds = Object.keys(nextPlayersState).filter(pid => nextPlayersState[pid]?.isOnCourt);
+      let nextActiveGK = prev.activeGoalkeeperId || '';
+      if (isRedNow && nextActiveGK === pId) {
+        nextActiveGK = pickBestGoalkeeper(nextOnCourtIds, players, nextPlayersState);
+      }
+
       let nextRotationEvents = prev.rotationEvents || [];
       if (isRedNow && ps.isOnCourt && !ps.redCard) {
-        const nextOnCourtIds = Object.keys(nextPlayersState).filter(pid => nextPlayersState[pid]?.isOnCourt);
         const nowTs = Date.now();
         nextRotationEvents = consolidateRotationEvents(
           [
@@ -1385,6 +1556,7 @@ export default function LiveTracker({
 
       return {
         ...prev,
+        activeGoalkeeperId: nextActiveGK,
         penaltyTimers: nextPenaltyTimers,
         playersState: nextPlayersState,
         rotationEvents: nextRotationEvents
@@ -1392,11 +1564,77 @@ export default function LiveTracker({
     });
   };
 
+  // Undo accidental expulsion from the bench card
+  const handleUndoExpulsion = (pId: string) => {
+    setMatchState(prev => {
+      const ps = prev.playersState[pId];
+      if (!ps || (!ps.redCard && ps.yellows < 2)) return prev;
+
+      const nextPlayersState = {
+        ...prev.playersState,
+        [pId]: {
+          ...ps,
+          redCard: false,
+          yellows: ps.yellows >= 2 ? 1 : ps.yellows
+        }
+      };
+
+      const nextPenaltyTimers = (prev.penaltyTimers || []).filter(pt => pt.playerId !== pId);
+
+      // Remove matching red_card rotation event in current half if it is the last event for that half
+      const existingRots = [...(prev.rotationEvents || [])];
+      let removeIdx = -1;
+      for (let i = existingRots.length - 1; i >= 0; i--) {
+        const ev = existingRots[i];
+        if (ev.half === prev.half && ev.type === 'red_card' && (ev.outPlayerId === pId || (ev.outPlayerIds || []).includes(pId))) {
+          const hasLaterInHalf = existingRots.slice(i + 1).some(later => later.half === prev.half);
+          if (!hasLaterInHalf) {
+            removeIdx = i;
+          }
+          break;
+        }
+      }
+      const nextRotationEvents =
+        removeIdx !== -1
+          ? consolidateRotationEvents(existingRots.filter((_, idx) => idx !== removeIdx), prev.shotsEvents)
+          : existingRots;
+
+      return {
+        ...prev,
+        penaltyTimers: nextPenaltyTimers,
+        playersState: nextPlayersState,
+        rotationEvents: nextRotationEvents
+      };
+    });
+  };
+
+  const resetLiveSessionState = () => {
+    setIsTimerRunning(false);
+    setMatchState(createDefaultLiveState());
+    setClickCoords(null);
+    setShotStep(null);
+    setSelectedSubjectId(null);
+    setSubInPlayerId(null);
+    setSecondHalfStarters([]);
+    setShowFirstHalfSummaryModal(false);
+    setShowResetModal(false);
+    setShowFinishModal(false);
+    setEditingLocalScore(false);
+    setEditingRivalScore(false);
+  };
+
   // Advance half-time: pause timer and open summary modal
   const handleAdvanceToSecondHalf = () => {
     setIsTimerRunning(false);
-    // Pre-populate secondHalfStarters with the current ones to save effort
-    setSecondHalfStarters([...matchState.titulares]);
+    const nonExpelledStarters = (matchState.titulares || []).filter(id => {
+      const ps = matchState.playersState[id];
+      return Boolean(id && ps && !ps.redCard && ps.yellows < 2);
+    });
+    const activePenalties = (matchState.penaltyTimers || []).filter(pt => pt.secondsRemaining > 0).length;
+    const requiredCount = Math.max(1, 5 - activePenalties);
+    const padded = [...nonExpelledStarters.slice(0, requiredCount)];
+    while (padded.length < 5) padded.push('');
+    setSecondHalfStarters(padded);
     setShowFirstHalfSummaryModal(true);
   };
 
@@ -1408,13 +1646,13 @@ export default function LiveTracker({
 
   const confirmFinishMatchArchive = () => {
     // Extract statistics — only for players actually called up to this match
-    // (starters + bench), never the entire historical roster.
     const convocadasIds = new Set([
+      ...(matchState.initialTitulares || []),
       ...(matchState.titulares || []),
       ...(matchState.suplentes || [])
     ]);
 
-    const finalStats: Record<string, any> = {};
+    const finalStats: Record<string, PlayerPerformance> = {};
     let totalPlayerShots = 0;
     let totalPlayerYellows = 0;
 
@@ -1448,7 +1686,6 @@ export default function LiveTracker({
       totalPlayerYellows += live.yellows;
     });
 
-    // Calculate state
     let winDrawLoss: 'W' | 'D' | 'L' = 'D';
     if (matchState.goalsFor > matchState.goalsAgainst) {
       winDrawLoss = 'W';
@@ -1474,6 +1711,11 @@ export default function LiveTracker({
       matchState.shotsEvents
     );
 
+    const startingFive =
+      matchState.initialTitulares && matchState.initialTitulares.length === 5
+        ? matchState.initialTitulares
+        : matchState.titulares;
+
     const outputMatch: Omit<Match, 'id'> = {
       rival: matchState.rival.trim(),
       date: matchState.date,
@@ -1492,20 +1734,23 @@ export default function LiveTracker({
       localFouls2ndHalf: matchState.localFouls2ndHalf,
       rivalFouls2ndHalf: matchState.rivalFouls2ndHalf,
       shotsEvents: matchState.shotsEvents,
-      titulares: matchState.titulares,
-      suplentes: matchState.suplentes,
+      titulares: startingFive,
+      suplentes: Array.from(convocadasIds).filter(id => !startingFive.includes(id)),
       teamId: activeTeamId,
       seasonId: activeSeasonId,
       periodDurationMinutes: matchState.periodDurationMinutes ?? 20,
       rotationEvents: finalRotationEvents
     };
 
-    // Automatically export the tactical PDF with full field drawing and individual minutes
-    exportMatchToPDF({ ...outputMatch, id: 'temp-id' }, players, activeTeamName);
-
+    // Save match first so any PDF generation failure never loses the archived match
     onSaveMatch(outputMatch);
-    setMatchState(createDefaultLiveState());
-    setShowFinishModal(false);
+    try {
+      exportMatchToPDF({ ...outputMatch, id: 'temp-id' }, players, activeTeamName);
+    } catch (pdfErr) {
+      console.error('Error generating match PDF:', pdfErr);
+    }
+
+    resetLiveSessionState();
   };
 
   // Quick helper lists
@@ -1540,8 +1785,9 @@ export default function LiveTracker({
   // -------------------------------------------------------------
   if (matchState.isPreMatch) {
     const availablePlayers = players
-      .filter(p => p.isActive)
+      .filter(p => p.isActive && p.status !== 'baja')
       .sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
+    const isPlayerUnavailable = (p: Player) => p.status === 'lesionado' || p.status === 'sancionado';
     
     // Starters list handlers
     const handleSetStarter = (index: number, playerId: string) => {
@@ -1551,7 +1797,6 @@ export default function LiveTracker({
           nextTitulares.push('');
         }
         nextTitulares[index] = playerId;
-        // ensure player is removed from suplentes if they were selected as a starter
         const nextSuplentes = playerId ? prev.suplentes.filter(id => id !== playerId) : prev.suplentes;
         return { ...prev, titulares: nextTitulares, suplentes: nextSuplentes };
       });
@@ -1559,13 +1804,16 @@ export default function LiveTracker({
 
     // Adds a player to suplentes roster list
     const handleAddSuplente = (playerId: string) => {
+      const targetPlayer = players.find(p => p.id === playerId);
+      if (!targetPlayer || targetPlayer.status === 'baja' || isPlayerUnavailable(targetPlayer)) return;
       if (matchState.suplentes.includes(playerId)) return;
       if (matchState.matchType === 'oficial' && matchState.suplentes.length >= 9) {
         alert('Solo puedes añadir un máximo de 9 suplentes en partidos oficiales.');
         return;
       }
       setMatchState(prev => {
-        // Clear starter slot if they were a starter (without shifting other starter positions)
+        if (prev.suplentes.includes(playerId)) return prev;
+        if (prev.matchType === 'oficial' && prev.suplentes.length >= 9) return prev;
         const nextStarters = prev.titulares.map(t => t === playerId ? '' : t);
         return {
           ...prev,
@@ -1753,14 +2001,30 @@ export default function LiveTracker({
                         type="number"
                         min="1"
                         max="120"
-                        value={matchState.periodDurationMinutes ?? 20}
+                        value={matchState.periodDurationMinutes ?? ''}
                         onChange={e => {
-                          const val = Math.max(1, parseInt(e.target.value) || 20);
-                          setMatchState({
-                            ...matchState,
-                            periodDurationMinutes: val,
-                            overallSeconds: val * 60
-                          });
+                          if (e.target.value === '') {
+                            setMatchState({ ...matchState, periodDurationMinutes: undefined });
+                            return;
+                          }
+                          const raw = parseInt(e.target.value, 10);
+                          if (!Number.isNaN(raw)) {
+                            const clamped = Math.max(1, Math.min(120, raw));
+                            setMatchState({
+                              ...matchState,
+                              periodDurationMinutes: clamped,
+                              overallSeconds: clamped * 60
+                            });
+                          }
+                        }}
+                        onBlur={() => {
+                          if (!matchState.periodDurationMinutes || matchState.periodDurationMinutes < 1) {
+                            setMatchState(prev => ({
+                              ...prev,
+                              periodDurationMinutes: 20,
+                              overallSeconds: 1200
+                            }));
+                          }
                         }}
                         className="w-9 bg-transparent border-none text-slate-800 font-mono font-bold text-center focus:outline-none text-xs"
                       />
@@ -1768,11 +2032,13 @@ export default function LiveTracker({
                         type="button"
                         onClick={() => {
                           const current = matchState.periodDurationMinutes ?? 20;
-                          setMatchState({
-                            ...matchState,
-                            periodDurationMinutes: current + 1,
-                            overallSeconds: (current + 1) * 60
-                          });
+                          if (current < 120) {
+                            setMatchState({
+                              ...matchState,
+                              periodDurationMinutes: current + 1,
+                              overallSeconds: (current + 1) * 60
+                            });
+                          }
                         }}
                         className="w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold rounded-lg text-xs select-none cursor-pointer"
                       >
@@ -1878,11 +2144,12 @@ export default function LiveTracker({
                     >
                       <option value="">-- Elegir --</option>
                       {availablePlayers.map(p => {
-                        // Prevent selection of same player twice in starters
+                        const isUnavailable = isPlayerUnavailable(p);
                         const isChosenElsewhere = matchState.titulares.includes(p.id) && matchState.titulares[idx] !== p.id;
+                        const statusSuffix = p.status === 'lesionado' ? ' · Lesionado/a' : p.status === 'sancionado' ? ' · Sancionado/a' : '';
                         return (
-                          <option key={p.id} value={p.id} disabled={isChosenElsewhere}>
-                            #{p.number} - {getDisambiguatedPlayerLabel(p, availablePlayers, false)} ({p.position === 'Portero/a' ? (p.gender === 'M' ? 'Portero' : 'Portera') : p.position})
+                          <option key={p.id} value={p.id} disabled={isChosenElsewhere || isUnavailable}>
+                            #{p.number} - {getDisambiguatedPlayerLabel(p, availablePlayers, false)} ({p.position === 'Portero/a' ? (p.gender === 'M' ? 'Portero' : 'Portera') : p.position}{statusSuffix})
                           </option>
                         );
                       })}
@@ -1904,32 +2171,32 @@ export default function LiveTracker({
               {availablePlayers.map(p => {
                 const isStarter = matchState.titulares.includes(p.id);
                 const isSuplente = matchState.suplentes.includes(p.id);
-                // A player that is starter AND somehow still in suplentes: allow clicking only to remove from bench
                 const isStarterOnlyNoSub = isStarter && !isSuplente;
+                const isUnavailable = isPlayerUnavailable(p);
+                const isDisabledBtn = isStarterOnlyNoSub || (isUnavailable && !isSuplente);
                 
                 return (
                   <button
                     key={p.id}
                     onClick={() => {
-                      if (isStarterOnlyNoSub) return; // truly blocked: starter and NOT in bench
+                      if (isStarterOnlyNoSub) return;
                       if (isStarter && isSuplente) {
-                        // Edge case: player is both starter and bench - just remove from bench
                         handleRemoveSuplente(p.id);
                         return;
                       }
                       if (isSuplente) {
                         handleRemoveSuplente(p.id);
-                      } else {
+                      } else if (!isUnavailable) {
                         handleAddSuplente(p.id);
                       }
                     }}
-                    disabled={isStarterOnlyNoSub}
-                    className={`p-1.5 pr-3 rounded-xl border font-bold transition flex items-center gap-2 select-none cursor-pointer ${
-                      isStarterOnlyNoSub
-                        ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-60'
+                    disabled={isDisabledBtn}
+                    className={`p-1.5 pr-3 rounded-xl border font-bold transition flex items-center gap-2 select-none ${
+                      isDisabledBtn
+                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-65'
                         : isSuplente
-                        ? 'bg-yellow-400 text-blue-950 border-yellow-400 shadow ring-2 ring-yellow-400'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        ? 'bg-yellow-400 text-blue-950 border-yellow-400 shadow ring-2 ring-yellow-400 cursor-pointer'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 cursor-pointer'
                     }`}
                   >
                     {p.photo ? (
@@ -1944,6 +2211,11 @@ export default function LiveTracker({
                       <span className="text-xs">{getDisambiguatedPlayerLabel(p, availablePlayers, false)}</span>
                     </div>
                     {isStarterOnlyNoSub && <span className="text-[8px] uppercase font-normal text-slate-400">(Titular)</span>}
+                    {!isStarterOnlyNoSub && isUnavailable && (
+                      <span className="text-[8px] uppercase font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded">
+                        {p.status === 'lesionado' ? 'Lesionado/a' : 'Sancionado/a'}
+                      </span>
+                    )}
                     {isSuplente && <span className="text-[9px] rounded-full bg-yellow-600/30 px-1 hover:bg-yellow-600/40 text-blue-950">✕</span>}
                   </button>
                 );
@@ -1954,17 +2226,17 @@ export default function LiveTracker({
           {/* VERIFY / SUBMIT */}
           <div className="pt-6 border-t border-slate-100 flex flex-col items-center justify-center space-y-3">
             {/* Dynamic visual badge explaining blocking */}
-            {(!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(Boolean).length !== 5 || (matchState.matchType === 'oficial' && matchState.suplentes.length > 9)) && (
+            {(!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(id => Boolean(id && availablePlayers.some(ap => ap.id === id && !isPlayerUnavailable(ap)))).length !== 5 || (matchState.matchType === 'oficial' && matchState.suplentes.length > 9)) && (
               <p className="text-xs font-semibold text-rose-500 bg-rose-50 border border-rose-100 px-4 py-2 rounded-xl flex items-center gap-1">
-                ⚠️ Completa el Nombre del Rival, {matchState.matchType === 'oficial' ? 'la Jornada, ' : ''}selecciona exactamente 5 Titulares{matchState.matchType === 'oficial' ? ' y un máximo de 9 Suplentes' : ''} para comenzar el partido.
+                ⚠️ Completa el Nombre del Rival, {matchState.matchType === 'oficial' ? 'la Jornada, ' : ''}selecciona exactamente 5 Titulares disponibles{matchState.matchType === 'oficial' ? ' y un máximo de 9 Suplentes' : ''} para comenzar el partido.
               </p>
             )}
             <button
                onClick={handleStartMatch}
-              disabled={!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(Boolean).length !== 5 || (matchState.matchType === 'oficial' && matchState.suplentes.length > 9)}
+              disabled={!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(id => Boolean(id && availablePlayers.some(ap => ap.id === id && !isPlayerUnavailable(ap)))).length !== 5 || (matchState.matchType === 'oficial' && matchState.suplentes.length > 9)}
               id="btn-prematch-start"
               className={`font-black text-sm uppercase px-12 py-5 rounded-2xl transition cursor-pointer shadow-lg tracking-wider space-y-1 border-b-4 ${
-                (!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(Boolean).length !== 5 || (matchState.matchType === 'oficial' && matchState.suplentes.length > 9))
+                (!matchState.rival.trim() || (matchState.matchType === 'oficial' && (!matchState.jornada || matchState.jornada <= 0)) || matchState.titulares.filter(id => Boolean(id && availablePlayers.some(ap => ap.id === id && !isPlayerUnavailable(ap)))).length !== 5 || (matchState.matchType === 'oficial' && matchState.suplentes.length > 9))
                   ? 'bg-slate-300 text-slate-500 border-slate-400 cursor-not-allowed opacity-50'
                   : 'bg-[#004183] text-white hover:bg-[#002f61] border-yellow-500 hover:scale-[1.01]'
               }`}
@@ -2027,8 +2299,8 @@ export default function LiveTracker({
                   min="0"
                   value={matchState.goalsFor}
                   onChange={e => {
-                    const val = parseInt(e.target.value);
-                    if (!isNaN(val)) setMatchState(prev => ({ ...prev, goalsFor: val }));
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val)) setMatchState(prev => ({ ...prev, goalsFor: Math.max(0, val) }));
                   }}
                   onBlur={() => setEditingLocalScore(false)}
                   onKeyDown={e => {
@@ -2126,9 +2398,14 @@ export default function LiveTracker({
               <div className="flex gap-1.5 mt-2">
                 <button
                   onClick={() => setIsTimerRunning(!isTimerRunning)}
+                  disabled={!isTimerRunning && matchState.overallSeconds <= 0}
                   id="btn-play-pause-tracking"
-                  className={`flex items-center gap-1 text-[10px] font-black px-3 py-1.5 rounded-lg cursor-pointer transition select-none ${
-                    isTimerRunning ? 'bg-amber-600' : 'bg-emerald-600'
+                  className={`flex items-center gap-1 text-[10px] font-black px-3 py-1.5 rounded-lg transition select-none ${
+                    !isTimerRunning && matchState.overallSeconds <= 0
+                      ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                      : isTimerRunning
+                        ? 'bg-amber-600 cursor-pointer'
+                        : 'bg-emerald-600 cursor-pointer'
                   }`}
                 >
                   {isTimerRunning ? <Pause size={10} /> : <Play size={10} />}
@@ -2170,8 +2447,8 @@ export default function LiveTracker({
                   min="0"
                   value={matchState.goalsAgainst}
                   onChange={e => {
-                    const val = parseInt(e.target.value);
-                    if (!isNaN(val)) setMatchState(prev => ({ ...prev, goalsAgainst: val }));
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val)) setMatchState(prev => ({ ...prev, goalsAgainst: Math.max(0, val) }));
                   }}
                   onBlur={() => setEditingRivalScore(false)}
                   onKeyDown={e => {
@@ -2325,7 +2602,7 @@ export default function LiveTracker({
                 </div>
 
                 <div>
-                  {matchState.shotsEvents.length > 0 && (
+                  {matchState.shotsEvents.some(s => s.half === matchState.half) && (
                     <button
                       onClick={handleUndoLastShotVal}
                       className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold px-2.5 py-1 rounded-lg text-[9px] transition uppercase flex items-center gap-1 select-none cursor-pointer"
@@ -2665,9 +2942,16 @@ export default function LiveTracker({
                         <p className="font-extrabold text-slate-700 text-[10px] truncate leading-tight" title={getDisambiguatedPlayerLabel(p, convocatedRoster, false)}>
                           {getDisambiguatedPlayerLabel(p, convocatedRoster, false)}
                         </p>
-                        <span className="text-[7.5px] text-slate-400 uppercase leading-none font-black block truncate">
+                        <button
+                          type="button"
+                          onClick={() => setMatchState(prev => ({ ...prev, activeGoalkeeperId: p.id }))}
+                          title={isPortera ? 'Portero/a activo/a en pista' : 'Pulsa para designar como portero/a / portero-jugador en pista'}
+                          className={`text-[7.5px] uppercase leading-none font-black block truncate text-left cursor-pointer transition ${
+                            isPortera ? 'text-amber-700' : 'text-slate-400 hover:text-[#004183]'
+                          }`}
+                        >
                           {p.position === 'Portero/a' ? (p.gender === 'M' ? 'Portero' : 'Portera') : p.position} {isPortera && '🧤'}
-                        </span>
+                        </button>
                       </div>
                     </div>
 
@@ -2676,7 +2960,7 @@ export default function LiveTracker({
                       <div className="flex-1 bg-rose-50 text-rose-800 border-rose-100 border text-center font-bold text-[8px] py-0.5 px-1.5 rounded flex items-center justify-center gap-0.5 min-w-0">
                         <AlertTriangle size={9} className="shrink-0" />
                         <span className="truncate">EXPULSADO</span>
-                        <button onClick={() => handlePlayerDirectRed(p.id)} className="underline ml-auto font-normal text-[7.5px] shrink-0">Reset</button>
+                        <button onClick={() => handleUndoExpulsion(p.id)} className="underline ml-auto font-normal text-[7.5px] shrink-0">Reset</button>
                       </div>
                     ) : (
                       <div className="flex-1 flex items-center justify-center gap-1 min-w-0 px-1 border-l border-r border-slate-100/50">
@@ -2897,16 +3181,23 @@ export default function LiveTracker({
                           Cancelar
                         </button>
                       </div>
+                    ) : isExpelled ? (
+                      <div className="w-full py-0.5 px-1 rounded-md text-[7.5px] text-center font-black uppercase bg-rose-50 text-rose-700 border border-rose-200 flex items-center justify-between gap-1">
+                        <span className="truncate">Expulsado/a</span>
+                        <button
+                          type="button"
+                          onClick={() => handleUndoExpulsion(p.id)}
+                          className="underline font-bold text-rose-800 hover:text-rose-950 shrink-0 cursor-pointer"
+                          title="Deshacer expulsión"
+                        >
+                          Deshacer
+                        </button>
+                      </div>
                     ) : (
                       <button
                         onClick={() => handleToggleSwapPlayer(p.id)}
-                        disabled={isExpelled}
-                        className={`w-full py-0.5 px-1.5 rounded-md text-[8px] text-center font-black uppercase transition-all flex items-center justify-center gap-0.5 ${
-                          isExpelled
-                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200 border'
-                            : 'bg-[#004183] text-white hover:bg-blue-900 cursor-pointer shadow-xs'
-                        }`}
-                        title={isExpelled ? "Jugadora expulsada" : "Introducir en pista"}
+                        className="w-full py-0.5 px-1.5 rounded-md text-[8px] text-center font-black uppercase transition-all flex items-center justify-center gap-0.5 bg-[#004183] text-white hover:bg-blue-900 cursor-pointer shadow-xs"
+                        title="Introducir en pista"
                       >
                         <span>Pista</span> <span className="text-[6.5px]">▲</span>
                       </button>
@@ -2985,8 +3276,8 @@ export default function LiveTracker({
               </button>
               <button
                 onClick={() => {
-                  setIsTimerRunning(false);
-                  setMatchState(createDefaultLiveState());
+                  resetLiveSessionState();
+                  if (onClearLiveDraft) onClearLiveDraft();
                   setShowResetModal(false);
                 }}
                 type="button"
@@ -3143,10 +3434,14 @@ export default function LiveTracker({
             };
           });
 
-        // Check if current 2nd half starters selection has exactly 5 unique players
-        const selectedCount = secondHalfStarters.filter(Boolean).length;
-        const uniqueSet = new Set(secondHalfStarters.filter(Boolean));
-        const isValidLineup = selectedCount === 5 && uniqueSet.size === 5;
+        // Check if current 2nd half starters selection matches required starters without expelled or duplicate players
+        const activePenaltyCount = (matchState.penaltyTimers || []).filter(pt => pt.secondsRemaining > 0).length;
+        const requiredStarters = Math.max(1, 5 - activePenaltyCount);
+        const activeSlots = secondHalfStarters.slice(0, requiredStarters).filter(Boolean);
+        const validUniqueActiveSlots = new Set(
+          activeSlots.filter(id => !matchState.playersState[id]?.redCard)
+        );
+        const isValidLineup = activeSlots.length === requiredStarters && validUniqueActiveSlots.size === requiredStarters;
 
         return (
           <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-[9999] p-4 overflow-y-auto flex justify-center items-start animate-fade-in">
@@ -3324,30 +3619,35 @@ export default function LiveTracker({
                     📋 Seleccionar Quinteto 2ª Parte
                   </p>
                   <p className="text-[9.5px] text-slate-500 font-bold">
-                    Elige exactamente 5 jugadoras distintas para iniciar la segunda parte
+                    {activePenaltyCount > 0
+                      ? `Elige ${requiredStarters} jugadores/as distintos/as (sanción temporal activa: -${activePenaltyCount} en pista)`
+                      : 'Elige exactamente 5 jugadores/as distintos/as para iniciar la segunda parte'}
                   </p>
                 </div>
                 
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   {[0, 1, 2, 3, 4].map(idx => {
-                    const currentVal = secondHalfStarters[idx] || '';
+                    const isSlotDisabledByPenalty = idx >= requiredStarters;
+                    const currentVal = isSlotDisabledByPenalty ? '' : (secondHalfStarters[idx] || '');
                     
                     return (
-                      <div key={idx} className="flex flex-col gap-1 bg-white p-2 border border-slate-200 rounded-xl shadow-3xs">
+                      <div key={idx} className={`flex flex-col gap-1 p-2 border rounded-xl shadow-3xs ${isSlotDisabledByPenalty ? 'bg-rose-50/70 border-rose-200 opacity-75' : 'bg-white border-slate-200'}`}>
                         <span className="text-[8.5px] uppercase text-slate-400 font-extrabold tracking-wider">
-                          Puesto {idx + 1}
+                          {isSlotDisabledByPenalty ? `Puesto ${idx + 1} (Sanción)` : `Puesto ${idx + 1}`}
                         </span>
                         <select
                           value={currentVal}
+                          disabled={isSlotDisabledByPenalty}
                           onChange={e => handleSetSecondHalfStarter(idx, e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-1 focus:ring-[#004183] font-bold text-slate-800 text-[11px] cursor-pointer"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 focus:outline-none focus:ring-1 focus:ring-[#004183] font-bold text-slate-800 text-[11px] cursor-pointer disabled:cursor-not-allowed"
                         >
-                          <option value="">Elegir...</option>
+                          <option value="">{isSlotDisabledByPenalty ? 'Reducido por sanción' : 'Elegir...'}</option>
                           {convocatedPlayers.map(p => {
-                            const isTakenElsewhere = secondHalfStarters.includes(p.id) && secondHalfStarters[idx] !== p.id;
+                            const isExpelledPlayer = !!matchState.playersState[p.id]?.redCard;
+                            const isTakenElsewhere = secondHalfStarters.slice(0, requiredStarters).includes(p.id) && secondHalfStarters[idx] !== p.id;
                             return (
-                              <option key={p.id} value={p.id} disabled={isTakenElsewhere}>
-                                #{p.number} - {getDisambiguatedPlayerLabel(p, convocatedPlayers, false)}
+                              <option key={p.id} value={p.id} disabled={isExpelledPlayer || isTakenElsewhere}>
+                                #{p.number} - {getDisambiguatedPlayerLabel(p, convocatedPlayers, false)}{isExpelledPlayer ? ' (Expulsado/a)' : ''}
                               </option>
                             );
                           })}
@@ -3363,11 +3663,11 @@ export default function LiveTracker({
                 <div className="text-center md:text-left">
                   {!isValidLineup ? (
                     <p className="text-rose-600 font-black text-xs uppercase animate-pulse">
-                      ❌ Debes elegir exactamente 5 jugadoras distintas para iniciar la 2ª Parte.
+                      ❌ Debes elegir exactamente {requiredStarters} {requiredStarters === 1 ? 'jugador/a distinto/a' : 'jugadores/as distintos/as'} activos/as para iniciar la 2ª Parte.
                     </p>
                   ) : (
                     <p className="text-emerald-600 font-extrabold text-xs uppercase flex items-center gap-1">
-                      ✓ ¡Quinteto cargado con éxito!
+                      ✓ ¡Alineación cargada con éxito!
                     </p>
                   )}
                 </div>
@@ -3382,7 +3682,7 @@ export default function LiveTracker({
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleStartSecondHalfFinal(secondHalfStarters)}
+                    onClick={() => handleStartSecondHalfFinal(secondHalfStarters.slice(0, requiredStarters))}
                     disabled={!isValidLineup}
                     className={`flex-1 md:flex-none uppercase text-xs font-black py-3 px-6 rounded-xl transition shadow-md cursor-pointer text-center select-none flex items-center justify-center gap-1.5 ${
                       isValidLineup 
@@ -3403,16 +3703,4 @@ export default function LiveTracker({
 
     </div>
   );
-
-  // Assertion fallback state representation safety helper
-  function setErrorGoalkeeperIdAssert(val: string) {
-    if (val && matchState.playersState[val]) {
-      // confirm GK is on court
-      if (!matchState.playersState[val].isOnCourt) {
-        const gkPlayer = players.find(p => p.id === val);
-        const term = gkPlayer?.gender === 'M' ? 'El portero seleccionado' : gkPlayer?.gender === 'F' ? 'La portera seleccionada' : 'El/la portero/a seleccionado/a';
-        alert(`Aviso: ${term} no figura como activo/a en pista actualmente. Asegúrate de marcarlo/a.`);
-      }
-    }
-  }
 }
