@@ -6,6 +6,14 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Match, Player, ShotEvent, PlayerPerformance, GOAL_TYPES } from '../types';
+import {
+  computeQuintetStats,
+  getDisplayRotationEvents,
+  getShotOnCourtIds,
+  getDisambiguatedPlayerLabel,
+  sortLineupIds,
+  formatSecondsMMSS
+} from './lineupAnalytics';
 
 // Format seconds into MM:SS string
 const formatTime = (totalSeconds: number): string => {
@@ -619,7 +627,7 @@ const drawPageHeader = (doc: jsPDF, title: string, subtitle: string, pageNum: nu
 };
 
 // EXPORT EXACT SINGLE PAGE MATCH REPORT
-export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
+export const exportMatchToPDF = (match: Match, allPlayers: Player[], teamName?: string) => {
   const logoBase64 = preloadedLogoBase64;
 
   const doc = new jsPDF({
@@ -628,14 +636,35 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
     format: 'a4'
   });
 
-  const totalPages = 2;
+  const hasRotationData = Boolean(match.rotationEvents && match.rotationEvents.length > 0);
+  const totalPages = hasRotationData ? 3 : 2;
+
+  // Player disambiguation lookup pool for this match
+  const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+  const matchPoolIds = new Set<string>([
+    ...(match.titulares || []),
+    ...(match.suplentes || []),
+    ...Object.keys(match.stats || {}),
+    ...(match.rotationEvents || []).flatMap(ev => [
+      ...ev.onCourtIds,
+      ...(ev.inPlayerId ? [ev.inPlayerId] : []),
+      ...(ev.outPlayerId ? [ev.outPlayerId] : [])
+    ])
+  ]);
+  const matchPoolPlayers = Array.from(matchPoolIds)
+    .map(id => playerMap.get(id))
+    .filter((p): p is Player => Boolean(p));
+  const labelPool = matchPoolPlayers.length > 0 ? matchPoolPlayers : allPlayers;
+
+  const cleanTeamName = teamName && teamName.trim() ? teamName.trim() : '';
+  const teamPrefix = cleanTeamName && cleanTeamName.toLowerCase() !== 'fs talavera' ? `${cleanTeamName} • ` : '';
 
   // HEADER: Official Shield, Rival, and Marcador Final Summary
   const titleStr = 'INFORME COMPLETO DE PARTIDO';
   const kitLabel = (match.talaveraKit || '1ª Equipación') === '1ª Equipación' ? 'Local' : 'Visitante';
   const subtitleStr = match.matchType === 'amistoso'
-    ? `vs ${match.rival} • Amistoso • ${kitLabel} • ${match.date}`
-    : `vs ${match.rival} • Jornada ${match.jornada} • ${kitLabel} • ${match.date}`;
+    ? `${teamPrefix}vs ${match.rival} • Amistoso • ${kitLabel} • ${match.date}`
+    : `${teamPrefix}vs ${match.rival} • Jornada ${match.jornada} • ${kitLabel} • ${match.date}`;
   drawPageHeader(doc, titleStr, subtitleStr, 1, totalPages, logoBase64);
 
   // --- UPPER HALF: TWO COLUMNS (1st & 2nd HALF SIDE-BY-SIDE) ---
@@ -856,20 +885,31 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
       // players who historically shared the same number.
       const scorerPlayer = allPlayers.find(p => p.id === g.playerId)
         || allPlayers.find(p => p.isActive && p.number === g.playerNumber);
-      scorerName = scorerPlayer ? `${scorerPlayer.alias || scorerPlayer.name} (#${scorerPlayer.number})` : (g.playerNumber ? `Equipo (#${g.playerNumber})` : 'Equipo');
+      scorerName = scorerPlayer
+        ? `${getDisambiguatedPlayerLabel(scorerPlayer, labelPool, false)} (#${scorerPlayer.number})`
+        : (g.playerNumber ? `Equipo (#${g.playerNumber})` : 'Equipo');
     }
+
+    const onCourtAtGoalIds = sortLineupIds(getShotOnCourtIds(match, g), allPlayers);
+    const quintetLabel = onCourtAtGoalIds.length > 0
+      ? onCourtAtGoalIds.map(pid => {
+          const pl = playerMap.get(pid);
+          return pl ? `#${pl.number}` : `#${pid}`;
+        }).join(', ')
+      : '-';
 
     return [
       (idx + 1).toString(),
       scorerName,
       halfStr,
       g.timeString,
-      runningScoreStr
+      runningScoreStr,
+      quintetLabel
     ];
   });
 
-  const goalHeaders = [['Nº', 'Goleador/a', 'Parte', 'Minuto', 'Marcador']];
-  const goalBody = goalRows.length > 0 ? goalRows : [['-', 'No se registraron goles', '-', '-', '0 - 0']];
+  const goalHeaders = [['Nº', 'Goleador/a', 'Parte', 'Min.', 'Marc.', 'Quinteto en Pista']];
+  const goalBody = goalRows.length > 0 ? goalRows : [['-', 'No se registraron goles', '-', '-', '0 - 0', '-']];
 
   autoTable(doc, {
     startY: bottomY + 2,
@@ -880,20 +920,21 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
       fillColor: [0, 65, 131],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 7.5,
+      fontSize: 7.0,
       halign: 'center'
     },
     styles: {
-      fontSize: 7.2,
-      cellPadding: 1.5,
+      fontSize: 6.5,
+      cellPadding: 1.3,
       halign: 'center'
     },
     columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 55, fontStyle: 'bold', halign: 'left' },
-      2: { cellWidth: 16, halign: 'center' },
-      3: { cellWidth: 16, halign: 'center' },
-      4: { cellWidth: 19, fontStyle: 'bold', halign: 'center' }
+      0: { fontStyle: 'bold', cellWidth: 7, halign: 'center' },
+      1: { cellWidth: 33, fontStyle: 'bold', halign: 'left' },
+      2: { cellWidth: 11, halign: 'center' },
+      3: { cellWidth: 12, halign: 'center' },
+      4: { cellWidth: 13, fontStyle: 'bold', halign: 'center' },
+      5: { cellWidth: 36, halign: 'left', fontSize: 6.2 }
     },
     margin: { left: tlgX },
     tableWidth: tlgW
@@ -1066,6 +1107,165 @@ export const exportMatchToPDF = (match: Match, allPlayers: Player[]) => {
     }
   }
 
+  if (hasRotationData) {
+    doc.addPage();
+    drawPageHeader(doc, titleStr, subtitleStr, 3, totalPages, logoBase64);
+
+    doc.setTextColor(0, 65, 131);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.text('RENDIMIENTO POR QUINTETOS EN PISTA (BALANCE +/- Y TIROS)', 14, 41);
+
+    doc.setDrawColor(0, 65, 131);
+    doc.setLineWidth(0.4);
+    doc.line(14, 42.5, 196, 42.5);
+
+    const formatPdfChip = (pid?: string): string => {
+      if (!pid) return 'Jugador/a';
+      const p = playerMap.get(pid);
+      return p ? getDisambiguatedPlayerLabel(p, labelPool, true) : `#${pid}`;
+    };
+
+    const quintets = computeQuintetStats(match, allPlayers);
+    const fmtShotsT = (i: number, o: number, t: number) =>
+      `T:${String(i).padStart(2, '0')}/${String(o).padStart(2, '0')}/${String(t).padStart(2, '0')}`;
+
+    const quintetRows = quintets.map(q => [
+      q.playerIds.map(pid => formatPdfChip(pid)).join(', '),
+      formatSecondsMMSS(q.secondsTogether),
+      `${q.goalsFor} - ${q.goalsAgainst}`,
+      q.plusMinus > 0 ? `+${q.plusMinus}` : `${q.plusMinus}`,
+      fmtShotsT(q.localShotsIn, q.localShotsOut, q.localShotsTotal),
+      fmtShotsT(q.rivalShotsIn, q.rivalShotsOut, q.rivalShotsTotal)
+    ]);
+
+    const quintetTableStartPage = doc.getNumberOfPages();
+    autoTable(doc, {
+      startY: 44,
+      head: [['Quinteto en Pista', 'Tiempo', 'Goles', '+/-', 'Tiros LCL', 'Tiros RVL']],
+      body: quintetRows.length > 0 ? quintetRows : [['Sin tramos registrados', '00:00', '0 - 0', '0', 'T:00/00/00', 'T:00/00/00']],
+      theme: 'striped',
+      headStyles: {
+        fillColor: [0, 65, 131],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 7.3,
+        halign: 'center'
+      },
+      styles: {
+        fontSize: 6.8,
+        cellPadding: 1.5,
+        halign: 'center'
+      },
+      columnStyles: {
+        0: { cellWidth: 94, halign: 'left', fontStyle: 'bold' },
+        1: { cellWidth: 16, halign: 'center' },
+        2: { cellWidth: 16, halign: 'center' },
+        3: { cellWidth: 12, halign: 'center', fontStyle: 'bold' },
+        4: { cellWidth: 22, halign: 'center' },
+        5: { cellWidth: 22, halign: 'center' }
+      },
+      margin: { top: 38, left: 14, bottom: 20 },
+      tableWidth: 182,
+      didParseCell: (data: any) => {
+        if (data.section === 'body' && data.column.index === 3) {
+          const valStr = String(data.cell.raw || '');
+          if (valStr.startsWith('+')) {
+            data.cell.styles.textColor = [16, 185, 129];
+          } else if (valStr.startsWith('-')) {
+            data.cell.styles.textColor = [220, 38, 38];
+          }
+        }
+      },
+      didDrawPage: (data: any) => {
+        if (data.pageNumber > quintetTableStartPage) {
+          drawPageHeader(doc, titleStr, subtitleStr, data.pageNumber, totalPages, logoBase64);
+        }
+      }
+    });
+
+    let rotStartY = ((doc as any).lastAutoTable?.finalY || 120) + 10;
+    if (rotStartY > 240) {
+      doc.addPage();
+      drawPageHeader(doc, titleStr, subtitleStr, doc.getNumberOfPages(), totalPages, logoBase64);
+      rotStartY = 41;
+    }
+
+    doc.setTextColor(0, 65, 131);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.text('CRONOLOGÍA DE CAMBIOS Y ROTACIONES', 14, rotStartY);
+
+    doc.setDrawColor(0, 65, 131);
+    doc.setLineWidth(0.4);
+    doc.line(14, rotStartY + 1.5, 196, rotStartY + 1.5);
+
+    const rotations = getDisplayRotationEvents(match);
+    const rotRows = rotations.map(ev => {
+      let movText = 'Quinteto Inicial';
+      if (ev.type === 'substitution') {
+        movText = `Entra ${formatPdfChip(ev.inPlayerId)} / Sale ${formatPdfChip(ev.outPlayerId)}`;
+      } else if (ev.type === 'enter') {
+        movText = `Entra ${formatPdfChip(ev.inPlayerId)}`;
+      } else if (ev.type === 'red_card') {
+        movText = `Expulsión ${formatPdfChip(ev.outPlayerId)}`;
+      }
+      const onCourtStr = ev.onCourtIds.map(pid => formatPdfChip(pid)).join(', ');
+      return [
+        `${ev.half}ª P.`,
+        ev.timeString,
+        movText,
+        onCourtStr || '-'
+      ];
+    });
+
+    const rotTableStartPage = doc.getNumberOfPages();
+    autoTable(doc, {
+      startY: rotStartY + 3,
+      head: [['Parte', 'Minuto', 'Movimiento', 'Quinteto en Pista']],
+      body: rotRows.length > 0 ? rotRows : [['-', '-', 'Sin movimientos registrados', '-']],
+      theme: 'striped',
+      headStyles: {
+        fillColor: [0, 65, 131],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 7.3,
+        halign: 'center'
+      },
+      styles: {
+        fontSize: 6.6,
+        cellPadding: 1.4,
+        halign: 'center'
+      },
+      columnStyles: {
+        0: { cellWidth: 14, halign: 'center', fontStyle: 'bold' },
+        1: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+        2: { cellWidth: 76, halign: 'left' },
+        3: { cellWidth: 76, halign: 'left' }
+      },
+      margin: { top: 38, left: 14, bottom: 20 },
+      tableWidth: 182,
+      didDrawPage: (data: any) => {
+        if (data.pageNumber > rotTableStartPage) {
+          drawPageHeader(doc, titleStr, subtitleStr, data.pageNumber, totalPages, logoBase64);
+        }
+      }
+    });
+
+    const actualTotalPages = doc.getNumberOfPages();
+    if (actualTotalPages !== totalPages) {
+      for (let i = 1; i <= actualTotalPages; i++) {
+        doc.setPage(i);
+        doc.setFillColor(255, 255, 255);
+        doc.rect(175, 281, 32, 7, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(110, 110, 110);
+        doc.text(`Pág. ${i} de ${actualTotalPages}`, 205, 285, { align: 'right' });
+      }
+    }
+  }
+
   const fileName = match.matchType === 'amistoso'
     ? `FS_Talavera_Amistoso_vs_${match.rival.replace(/\s+/g, '_')}.pdf`
     : `FS_Talavera_Jornada_${match.jornada}_vs_${match.rival.replace(/\s+/g, '_')}.pdf`;
@@ -1078,7 +1278,8 @@ export const exportTeamReportToPDF = (
   players: Player[],
   selectedSeason: string = 'all',
   matchTypeFilter: string = 'all',
-  venueFilter: string = 'all'
+  venueFilter: string = 'all',
+  teamName?: string
 ) => {
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -1090,7 +1291,9 @@ export const exportTeamReportToPDF = (
   const seasonLabel = selectedSeason === 'all' ? 'Todas las Temporadas' : selectedSeason;
   const typeLabel = matchTypeFilter === 'all' ? 'Todos los partidos' : matchTypeFilter === 'oficial' ? 'Partidos Oficiales' : 'Partidos Amistosos';
   const venueLabel = venueFilter === 'all' ? '' : venueFilter === 'local' ? ' • Solo Local' : ' • Solo Visitante';
-  const headerSubtitle = `${seasonLabel} • ${typeLabel}${venueLabel}`;
+  const cleanTeam = teamName && teamName.trim() ? teamName.trim() : '';
+  const teamPrefix = cleanTeam && cleanTeam.toLowerCase() !== 'fs talavera' ? `${cleanTeam} • ` : '';
+  const headerSubtitle = `${teamPrefix}${seasonLabel} • ${typeLabel}${venueLabel}`;
 
   if (matches.length === 0) {
     drawPageHeader(doc, 'INFORME DE RENDIMIENTO ACUMULADO', headerSubtitle, 1, 1, logoBase64);
@@ -2131,7 +2334,8 @@ export const exportPlayerDossierToPDF = (
   playersToExport: Player[],
   matches: Match[],
   matchTypeFilter: 'all' | 'oficial' | 'amistoso' = 'oficial',
-  singleFileName?: string
+  singleFileName?: string,
+  teamName?: string
 ) => {
   if (playersToExport.length === 0) return;
 
@@ -2186,7 +2390,11 @@ export const exportPlayerDossierToPDF = (
   const totalPages = sortedPlayers.length + 1;
 
   // 3. DRAW SUMMARY PAGE
-  drawPageHeader(doc, 'RESUMEN DE PLANTILLA', 'Análisis Global del Equipo', 1, totalPages, logoBase64);
+  const cleanTeam = teamName && teamName.trim() ? teamName.trim() : '';
+  const summarySubtitle = cleanTeam && cleanTeam.toLowerCase() !== 'fs talavera'
+    ? `${cleanTeam} • Análisis Global del Equipo`
+    : 'Análisis Global del Equipo';
+  drawPageHeader(doc, 'RESUMEN DE PLANTILLA', summarySubtitle, 1, totalPages, logoBase64);
   
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
