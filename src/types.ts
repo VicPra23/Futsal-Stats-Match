@@ -5,6 +5,36 @@
 
 export type PositionType = 'Portero/a' | 'Cierre' | 'Ala' | 'Pívot' | 'Universal';
 
+export const DEFAULT_TEAM_ID = 'team-fs-talavera';
+export const DEFAULT_SEASON_ID = 'season-2026-27';
+
+export interface Team {
+  id: string;
+  name: string;
+  category?: string;
+  isArchived?: boolean;
+}
+
+export interface Season {
+  id: string;
+  name: string;
+  isActive?: boolean;
+}
+
+export type RotationEventType = 'initial_lineup' | 'substitution' | 'enter' | 'red_card' | 'half_end';
+
+export interface RotationEvent {
+  id: string;
+  half: 1 | 2;
+  timeString: string; // "MM:SS" restante en el reloj
+  secondsRemaining: number; // segundos restantes (e.g. 1200 -> 0)
+  type: RotationEventType;
+  inPlayerId?: string;
+  outPlayerId?: string;
+  onCourtIds: string[]; // snapshot exacto de IDs en pista tras el evento
+  timestamp: number; // Date.now() para desempate en el mismo segundo
+}
+
 export interface Player {
   id: string;
   name: string; // Nombre Completo
@@ -16,6 +46,10 @@ export interface Player {
   birthDate: string; // Fecha de nacimiento
   dominantLeg: 'Diestra' | 'Zurda' | 'Ambidiestra'; // Pierna dominante
   gender?: 'M' | 'F'; // Sexo: 'M' (Hombre ♂) o 'F' (Mujer ♀)
+  teamId?: string;
+  seasonId?: string;
+  captain?: boolean;
+  status?: 'activo' | 'baja' | 'lesionado' | 'sancionado';
 }
 
 export interface PlayerPerformance {
@@ -61,6 +95,7 @@ export interface ShotEvent {
   playerNumber?: string; // Dorsal of player
   timeString: string; // "MM:SS" of the match
   half: 1 | 2;
+  onCourtIds?: string[];
 }
 
 export interface Match {
@@ -85,6 +120,10 @@ export interface Match {
   titulares: string[]; // exactly 5 IDs (Position 1 is treated as Portera)
   suplentes: string[]; // up to 7 IDs
   comment?: string;
+  teamId?: string;
+  seasonId?: string;
+  periodDurationMinutes?: number;
+  rotationEvents?: RotationEvent[];
 }
 
 export interface LivePlayerState {
@@ -134,6 +173,9 @@ export interface LiveMatchState {
   rivalTimeout1stHalfCalled?: boolean;
   rivalTimeout2ndHalfCalled?: boolean;
   penaltyTimers?: ActivePenalty[];
+  teamId?: string;
+  seasonId?: string;
+  rotationEvents?: RotationEvent[];
 }
 
 export interface ActivePenalty {

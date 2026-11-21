@@ -3,21 +3,100 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Play, History, Trophy, Users, ShieldAlert, Award, Calendar, Share2, Download, Upload, Copy, Check } from 'lucide-react';
 import QRCode from 'qrcode';
 import LZString from 'lz-string';
-import { Player, Match, LiveMatchState } from './types';
+import {
+  Player,
+  Match,
+  LiveMatchState,
+  Team,
+  Season,
+  DEFAULT_TEAM_ID,
+  DEFAULT_SEASON_ID,
+} from './types';
 import PlayerManager from './components/PlayerManager';
 import LiveTracker from './components/LiveTracker';
 import HistoryList from './components/HistoryList';
 import StatsDashboard from './components/StatsDashboard';
+import TeamManagementPanel, { ParsedExcelPlayerRow } from './components/TeamManagementPanel';
 import ReloadPrompt from './components/ReloadPrompt';
 
 const DEFAULT_PLAYERS: Player[] = [];
 
+const DEFAULT_TEAMS: Team[] = [
+  { id: DEFAULT_TEAM_ID, name: 'FS Talavera', category: 'Equipo principal' }
+];
+
+const DEFAULT_SEASONS: Season[] = [
+  { id: DEFAULT_SEASON_ID, name: '2026/27', isActive: true }
+];
+
+const generateId = (prefix: string): string =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? `${prefix}-${crypto.randomUUID()}`
+    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+
+const normalizeNameForMatch = (value: string): string =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'live' | 'history' | 'stats' | 'players'>('live');
+
+  // Multi-Team & Multi-Season state
+  const [teams, setTeams] = useState<Team[]>(() => {
+    const saved = localStorage.getItem('fst_teams_v2');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {
+        console.error('Failed to parse teams list.', e);
+      }
+    }
+    return DEFAULT_TEAMS;
+  });
+
+  const [seasons, setSeasons] = useState<Season[]>(() => {
+    const saved = localStorage.getItem('fst_seasons_v2');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {
+        console.error('Failed to parse seasons list.', e);
+      }
+    }
+    return DEFAULT_SEASONS;
+  });
+
+  const [selectedTeamId, setSelectedTeamId] = useState<string>(() => {
+    const saved = localStorage.getItem('fst_selected_team_v2');
+    if (saved) {
+      const found = teams.find(t => t.id === saved && !t.isArchived);
+      if (found) return found.id;
+    }
+    const firstActive = teams.find(t => !t.isArchived);
+    return firstActive ? firstActive.id : (teams[0]?.id || DEFAULT_TEAM_ID);
+  });
+
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string>(() => {
+    const saved = localStorage.getItem('fst_selected_season_v2');
+    if (saved && seasons.some(s => s.id === saved)) {
+      return saved;
+    }
+    const activeSeason = seasons.find(s => s.isActive);
+    return activeSeason ? activeSeason.id : (seasons[0]?.id || DEFAULT_SEASON_ID);
+  });
 
   // Roster Pool state
   const [players, setPlayers] = useState<Player[]>(() => {
@@ -62,18 +141,94 @@ export default function App() {
     return [];
   });
 
-  // Current Live Draft state
-  const [liveDraft, setLiveDraft] = useState<LiveMatchState | null>(() => {
-    const saved = localStorage.getItem('futsal_live_draft_v1');
-    if (saved) {
+  // Live Drafts per Team (migrating legacy v1 draft if v2 does not exist)
+  const [liveDraftsByTeam, setLiveDraftsByTeam] = useState<Record<string, LiveMatchState | null>>(() => {
+    const savedV2 = localStorage.getItem('futsal_live_drafts_v2');
+    if (savedV2) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(savedV2);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
       } catch (e) {
-        console.error('Failed to load live draft.', e);
+        console.error('Failed to load live drafts v2.', e);
       }
     }
-    return null;
+    const savedLegacy = localStorage.getItem('futsal_live_draft_v1');
+    if (savedLegacy) {
+      try {
+        const parsed = JSON.parse(savedLegacy) as LiveMatchState;
+        if (parsed) {
+          return { [parsed.teamId || DEFAULT_TEAM_ID]: parsed };
+        }
+      } catch (e) {
+        console.error('Failed to migrate legacy live draft.', e);
+      }
+    }
+    return {};
   });
+
+  const activeLiveDraft = liveDraftsByTeam[selectedTeamId] || null;
+
+  // Persist Teams, Seasons, Active Context, Drafts & Players to localStorage
+  useEffect(() => {
+    localStorage.setItem('fst_teams_v2', JSON.stringify(teams));
+  }, [teams]);
+
+  useEffect(() => {
+    localStorage.setItem('fst_seasons_v2', JSON.stringify(seasons));
+  }, [seasons]);
+
+  useEffect(() => {
+    localStorage.setItem('fst_selected_team_v2', selectedTeamId);
+  }, [selectedTeamId]);
+
+  useEffect(() => {
+    localStorage.setItem('fst_selected_season_v2', selectedSeasonId);
+  }, [selectedSeasonId]);
+
+  useEffect(() => {
+    localStorage.setItem('futsal_live_drafts_v2', JSON.stringify(liveDraftsByTeam));
+  }, [liveDraftsByTeam]);
+
+  // Ensure selectedTeamId never points to a missing or archived team
+  useEffect(() => {
+    const nonArchived = teams.filter(t => !t.isArchived);
+    if (nonArchived.length > 0 && !nonArchived.some(t => t.id === selectedTeamId)) {
+      setSelectedTeamId(nonArchived[0].id);
+    }
+  }, [teams, selectedTeamId]);
+
+  // Filtered global lists by active Team & Season
+  const activeTeams = useMemo(() => teams.filter(t => !t.isArchived), [teams]);
+  const activeTeam = useMemo(
+    () => activeTeams.find(t => t.id === selectedTeamId) || activeTeams[0] || teams[0],
+    [activeTeams, teams, selectedTeamId]
+  );
+  const activeTeamSeasonPlayers = useMemo(
+    () =>
+      players.filter(
+        p =>
+          (p.teamId || DEFAULT_TEAM_ID) === selectedTeamId &&
+          (p.seasonId || DEFAULT_SEASON_ID) === selectedSeasonId
+      ),
+    [players, selectedTeamId, selectedSeasonId]
+  );
+  const activeTeamAllPlayers = useMemo(
+    () => players.filter(p => (p.teamId || DEFAULT_TEAM_ID) === selectedTeamId),
+    [players, selectedTeamId]
+  );
+  const activeTeamMatches = useMemo(
+    () => matches.filter(m => (m.teamId || DEFAULT_TEAM_ID) === selectedTeamId),
+    [matches, selectedTeamId]
+  );
+  const activeTeamSeasonMatches = useMemo(
+    () =>
+      activeTeamMatches.filter(
+        m => (m.seasonId || DEFAULT_SEASON_ID) === selectedSeasonId
+      ),
+    [activeTeamMatches, selectedSeasonId]
+  );
 
   // Synchronize Roster state to localStorage
   useEffect(() => {
@@ -158,15 +313,28 @@ export default function App() {
   const handleAddPlayer = useCallback((newPlayer: Omit<Player, 'id' | 'isActive'>) => {
     const player: Player = {
       ...newPlayer,
-      id: `p-${Date.now()}`,
-      isActive: true
+      id: generateId('p'),
+      isActive: true,
+      teamId: newPlayer.teamId || selectedTeamId,
+      seasonId: newPlayer.seasonId || selectedSeasonId,
+      status: newPlayer.status || 'activo'
     };
     setPlayers(prev => [...prev, player]);
-  }, []);
+  }, [selectedTeamId, selectedSeasonId]);
 
   const handleEditPlayer = useCallback((updatedPlayer: Player) => {
-    setPlayers(prev => prev.map(p => p.id === updatedPlayer.id ? updatedPlayer : p));
-  }, []);
+    setPlayers(prev =>
+      prev.map(p =>
+        p.id === updatedPlayer.id
+          ? {
+              ...updatedPlayer,
+              teamId: updatedPlayer.teamId || p.teamId || selectedTeamId,
+              seasonId: updatedPlayer.seasonId || p.seasonId || selectedSeasonId
+            }
+          : p
+      )
+    );
+  }, [selectedTeamId, selectedSeasonId]);
 
   const handleDeletePlayer = useCallback((id: string) => {
     // Soft remove players to preserve history records, or update state
@@ -175,17 +343,23 @@ export default function App() {
 
   // Archive & Save live match
   const handleSaveMatch = useCallback((newMatch: Omit<Match, 'id'>) => {
+    const targetTeamId = newMatch.teamId || selectedTeamId;
     const match: Match = {
       ...newMatch,
-      id: `m-${Date.now()}`
+      id: generateId('m'),
+      teamId: targetTeamId,
+      seasonId: newMatch.seasonId || selectedSeasonId
     };
     setMatches(prev => [...prev, match]);
-    setLiveDraft(null);
+    setLiveDraftsByTeam(prev => ({
+      ...prev,
+      [targetTeamId]: null
+    }));
     localStorage.removeItem('futsal_live_draft_v1');
     
     // Auto navigate to Jornadas to review the summary
     setActiveTab('history');
-  }, []);
+  }, [selectedTeamId, selectedSeasonId]);
 
   // Delete a match entirely
   const handleDeleteMatch = useCallback((id: string) => {
@@ -199,16 +373,162 @@ export default function App() {
     );
   }, []);
 
-  // Auto-backup live match in progress
+  // Auto-backup live match in progress (isolated per team)
   const handleSaveLiveDraft = useCallback((state: LiveMatchState) => {
-    setLiveDraft(state);
-    localStorage.setItem('futsal_live_draft_v1', JSON.stringify(state));
+    const targetTeamId = state.teamId || selectedTeamId;
+    const stampedState: LiveMatchState = {
+      ...state,
+      teamId: targetTeamId,
+      seasonId: state.seasonId || selectedSeasonId
+    };
+    setLiveDraftsByTeam(prev => ({
+      ...prev,
+      [targetTeamId]: stampedState
+    }));
+    localStorage.setItem('futsal_live_draft_v1', JSON.stringify(stampedState));
+  }, [selectedTeamId, selectedSeasonId]);
+
+  // Team & Season CRUD callbacks
+  const handleCreateTeam = useCallback((name: string, category: string): string => {
+    const newId = generateId('team');
+    setTeams(prev => [...prev, { id: newId, name, category: category || undefined }]);
+    return newId;
   }, []);
+
+  const handleUpdateTeam = useCallback((id: string, name: string, category: string) => {
+    setTeams(prev =>
+      prev.map(t => (t.id === id ? { ...t, name, category: category || undefined } : t))
+    );
+  }, []);
+
+  const handleDuplicateTeam = useCallback((sourceTeamId: string, newName: string, category: string) => {
+    const newTeamId = generateId('team');
+    setTeams(prev => [...prev, { id: newTeamId, name: newName, category: category || undefined }]);
+    const sourceSquad = players.filter(
+      p =>
+        (p.teamId || DEFAULT_TEAM_ID) === sourceTeamId &&
+        (p.seasonId || DEFAULT_SEASON_ID) === selectedSeasonId &&
+        p.isActive
+    );
+    if (sourceSquad.length > 0) {
+      const cloned = sourceSquad.map(p => ({
+        ...p,
+        id: generateId('p'),
+        teamId: newTeamId,
+        seasonId: selectedSeasonId
+      }));
+      setPlayers(prev => [...prev, ...cloned]);
+    }
+    setSelectedTeamId(newTeamId);
+  }, [players, selectedSeasonId]);
+
+  const handleArchiveTeam = useCallback((id: string) => {
+    setTeams(prev => prev.map(t => (t.id === id ? { ...t, isArchived: true } : t)));
+    if (id === selectedTeamId) {
+      const nextActive = teams.find(t => t.id !== id && !t.isArchived);
+      if (nextActive) {
+        setSelectedTeamId(nextActive.id);
+      }
+    }
+  }, [selectedTeamId, teams]);
+
+  const handleCreateSeason = useCallback((name: string, copyCurrentSquad: boolean): string => {
+    const newSeasonId = generateId('season');
+    setSeasons(prev => [...prev, { id: newSeasonId, name }]);
+    if (copyCurrentSquad) {
+      const sourceSquad = players.filter(
+        p =>
+          (p.teamId || DEFAULT_TEAM_ID) === selectedTeamId &&
+          (p.seasonId || DEFAULT_SEASON_ID) === selectedSeasonId &&
+          p.isActive
+      );
+      if (sourceSquad.length > 0) {
+        const cloned = sourceSquad.map(p => ({
+          ...p,
+          id: generateId('p'),
+          teamId: selectedTeamId,
+          seasonId: newSeasonId
+        }));
+        setPlayers(prev => [...prev, ...cloned]);
+      }
+    }
+    return newSeasonId;
+  }, [players, selectedTeamId, selectedSeasonId]);
+
+  const handleBulkImportExcel = useCallback((rows: ParsedExcelPlayerRow[]) => {
+    if (rows.length === 0) return;
+
+    const nextTeams = [...teams];
+    const nextSeasons = [...seasons];
+    const createdPlayers: Player[] = [];
+    let lastTeamId = selectedTeamId;
+    let lastSeasonId = selectedSeasonId;
+
+    rows.forEach(row => {
+      const normTeam = normalizeNameForMatch(row.teamName);
+      let teamObj =
+        nextTeams.find(t => !t.isArchived && normalizeNameForMatch(t.name) === normTeam) ||
+        nextTeams.find(t => normalizeNameForMatch(t.name) === normTeam);
+
+      if (!teamObj) {
+        teamObj = {
+          id: generateId('team'),
+          name: row.teamName.trim(),
+          category: row.category.trim() || undefined
+        };
+        nextTeams.push(teamObj);
+      } else {
+        if (teamObj.isArchived) {
+          teamObj.isArchived = false;
+        }
+        if (row.category.trim() && !teamObj.category) {
+          teamObj.category = row.category.trim();
+        }
+      }
+
+      const normSeason = normalizeNameForMatch(row.seasonName);
+      let seasonObj = nextSeasons.find(s => normalizeNameForMatch(s.name) === normSeason);
+      if (!seasonObj) {
+        seasonObj = {
+          id: generateId('season'),
+          name: row.seasonName.trim()
+        };
+        nextSeasons.push(seasonObj);
+      }
+
+      createdPlayers.push({
+        id: generateId('p'),
+        name: row.name,
+        alias: row.alias || row.name.split(/\s+/)[0],
+        number: row.number,
+        position: row.position,
+        isActive: true,
+        birthDate: row.birthDate || '',
+        dominantLeg: row.dominantLeg,
+        gender: row.gender,
+        teamId: teamObj.id,
+        seasonId: seasonObj.id,
+        captain: row.captain,
+        status: row.status
+      });
+
+      lastTeamId = teamObj.id;
+      lastSeasonId = seasonObj.id;
+    });
+
+    setTeams(nextTeams);
+    setSeasons(nextSeasons);
+    setPlayers(prev => [...prev, ...createdPlayers]);
+    setSelectedTeamId(lastTeamId);
+    setSelectedSeasonId(lastSeasonId);
+  }, [teams, seasons, selectedTeamId, selectedSeasonId]);
 
   // --- SYNCHRONIZATION AND SHARE LOGIC ---
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [pendingImport, setPendingImport] = useState<{
+    teams?: Team[];
+    seasons?: Season[];
     players?: Player[];
     matches?: Match[];
     liveDraft?: LiveMatchState | null;
@@ -253,9 +573,11 @@ export default function App() {
       }));
     }
     return {
+      teams: teams || DEFAULT_TEAMS,
+      seasons: seasons || DEFAULT_SEASONS,
       players: finalPlayers,
       matches: options.excludeMatches ? [] : (matches || []),
-      liveDraft: options.excludeLive ? null : (liveDraft || null)
+      liveDraft: options.excludeLive ? null : (activeLiveDraft || null)
     };
   };
 
@@ -357,7 +679,7 @@ export default function App() {
 
       tryGenerate(shareExcludePhotos, shareExcludeMatches, shareExcludeLive);
     }
-  }, [showSyncModal, syncTab, players, matches, liveDraft, shareExcludePhotos, shareExcludeMatches, shareExcludeLive]);
+  }, [showSyncModal, syncTab, teams, seasons, players, matches, activeLiveDraft, shareExcludePhotos, shareExcludeMatches, shareExcludeLive]);
 
   const exportToJsonFile = () => {
     const dataStr = JSON.stringify(getPackageData(), null, 2);
@@ -381,7 +703,7 @@ export default function App() {
       try {
         const text = event.target?.result as string;
         const parsed = JSON.parse(text);
-        if (parsed && (parsed.players || parsed.matches)) {
+        if (parsed && (parsed.players || parsed.matches || parsed.teams)) {
           setPendingImport(parsed);
           setShowImportModal(true);
           setShowSyncModal(false);
@@ -400,7 +722,7 @@ export default function App() {
     try {
       const decodedStr = decodeImportString(manualCode.trim());
       const parsed = JSON.parse(decodedStr);
-      if (parsed && (parsed.players || parsed.matches)) {
+      if (parsed && (parsed.players || parsed.matches || parsed.teams)) {
         setPendingImport(parsed);
         setShowImportModal(true);
         setShowSyncModal(false);
@@ -417,10 +739,24 @@ export default function App() {
     if (!pendingImport) return;
 
     if (importType === 'replace') {
+      if (pendingImport.teams && pendingImport.teams.length > 0) {
+        setTeams(pendingImport.teams);
+        const firstActiveTeam = pendingImport.teams.find(t => !t.isArchived) || pendingImport.teams[0];
+        if (firstActiveTeam) setSelectedTeamId(firstActiveTeam.id);
+      }
+      if (pendingImport.seasons && pendingImport.seasons.length > 0) {
+        setSeasons(pendingImport.seasons);
+        const activeS = pendingImport.seasons.find(s => s.isActive) || pendingImport.seasons[0];
+        if (activeS) setSelectedSeasonId(activeS.id);
+      }
       if (pendingImport.players) setPlayers(pendingImport.players);
       if (pendingImport.matches) setMatches(pendingImport.matches);
       if (pendingImport.liveDraft !== undefined) {
-        setLiveDraft(pendingImport.liveDraft);
+        const draftTeamId = pendingImport.liveDraft?.teamId || selectedTeamId;
+        setLiveDraftsByTeam(prev => ({
+          ...prev,
+          [draftTeamId]: pendingImport.liveDraft || null
+        }));
         if (pendingImport.liveDraft) {
           localStorage.setItem('futsal_live_draft_v1', JSON.stringify(pendingImport.liveDraft));
         } else {
@@ -428,17 +764,56 @@ export default function App() {
         }
       }
     } else {
-      // Merge
+      // Merge teams & seasons first
+      if (pendingImport.teams && pendingImport.teams.length > 0) {
+        setTeams(prev => {
+          const merged = [...(prev || [])];
+          pendingImport.teams!.forEach(newT => {
+            const exists = merged.find(
+              t =>
+                t.id === newT.id ||
+                normalizeNameForMatch(t.name) === normalizeNameForMatch(newT.name)
+            );
+            if (!exists) merged.push(newT);
+          });
+          return merged;
+        });
+      }
+
+      if (pendingImport.seasons && pendingImport.seasons.length > 0) {
+        setSeasons(prev => {
+          const merged = [...(prev || [])];
+          pendingImport.seasons!.forEach(newS => {
+            const exists = merged.find(
+              s =>
+                s.id === newS.id ||
+                normalizeNameForMatch(s.name) === normalizeNameForMatch(newS.name)
+            );
+            if (!exists) merged.push(newS);
+          });
+          return merged;
+        });
+      }
+
       if (pendingImport.players) {
         setPlayers(prev => {
           const merged = [...(prev || [])];
           pendingImport.players!.forEach(newP => {
-            const exists = merged.find(p =>
-              p.id === newP.id ||
-              (p.name.trim().toLowerCase() === newP.name.trim().toLowerCase() && p.number === newP.number) ||
-              // Two active players can never share a dorsal number, even if the name differs slightly
-              (p.isActive && newP.isActive && p.number === newP.number)
-            );
+            const newTeamId = newP.teamId || DEFAULT_TEAM_ID;
+            const newSeasonId = newP.seasonId || DEFAULT_SEASON_ID;
+            const exists = merged.find(p => {
+              const pTeamId = p.teamId || DEFAULT_TEAM_ID;
+              const pSeasonId = p.seasonId || DEFAULT_SEASON_ID;
+              const sameScope = pTeamId === newTeamId && pSeasonId === newSeasonId;
+              return (
+                p.id === newP.id ||
+                (sameScope &&
+                  p.name.trim().toLowerCase() === newP.name.trim().toLowerCase() &&
+                  p.number === newP.number) ||
+                // Two active players in the SAME team & season cannot share a dorsal number
+                (sameScope && p.isActive && newP.isActive && p.number === newP.number)
+              );
+            });
             if (!exists) {
               merged.push(newP);
             }
@@ -460,9 +835,16 @@ export default function App() {
         });
       }
 
-      if (pendingImport.liveDraft && !liveDraft) {
-        setLiveDraft(pendingImport.liveDraft);
-        localStorage.setItem('futsal_live_draft_v1', JSON.stringify(pendingImport.liveDraft));
+      if (pendingImport.liveDraft) {
+        const draftTeamId = pendingImport.liveDraft.teamId || selectedTeamId;
+        setLiveDraftsByTeam(prev => {
+          if (prev[draftTeamId]) return prev;
+          localStorage.setItem('futsal_live_draft_v1', JSON.stringify(pendingImport.liveDraft));
+          return {
+            ...prev,
+            [draftTeamId]: pendingImport.liveDraft!
+          };
+        });
       }
     }
 
@@ -479,7 +861,7 @@ export default function App() {
       try {
         const decodedStr = decodeImportString(importParam);
         const parsed = JSON.parse(decodedStr);
-        if (parsed && (parsed.players || parsed.matches)) {
+        if (parsed && (parsed.players || parsed.matches || parsed.teams)) {
           setPendingImport(parsed);
           setShowImportModal(true);
         }
@@ -500,71 +882,116 @@ export default function App() {
         <div className="absolute top-0 left-0 w-full h-1 bg-[#FFD700]"></div>
         
         <div className="max-w-7xl mx-auto px-4 py-2 flex flex-row justify-between items-center gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             {/* Club Shield Emblem Visual representation wrapper */}
             <div className="relative w-8 h-8 bg-white rounded-full border border-[#FFD700] flex items-center justify-center shadow-xs shrink-0 p-0.5">
               <img
                 referrerPolicy="no-referrer"
                 src="./logo.png"
-                alt="FS Talavera Femenino"
+                alt="FS Talavera"
                 className="w-full h-full object-contain"
               />
             </div>
 
-            <div>
-              <h1 className="text-sm md:text-base font-black tracking-tight text-white">
+            <div className="min-w-0">
+              <h1 className="text-sm md:text-base font-black tracking-tight text-white truncate">
                 FS TALAVERA <span className="text-[#FFD700]">STATS MANAGER</span>
               </h1>
             </div>
           </div>
 
-          {/* Sync Button on the Right */}
-          <button
-            onClick={() => setShowSyncModal(true)}
-            className="bg-[#003163] hover:bg-blue-800 text-white border border-blue-700/50 hover:border-blue-600 transition duration-150 rounded-lg px-2.5 py-1 flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
-            title="Sincronizar y compartir datos"
-          >
-            <Share2 size={13} className="text-[#FFD700] shrink-0" />
-            <span className="text-[10.5px] font-black uppercase tracking-wider">Sincronizar</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Quick Active Team Switcher Pill */}
+            <div className="inline-flex items-center gap-1 bg-[#003163] border border-blue-700/60 rounded-lg px-2 py-1 text-[10.5px] font-extrabold text-white shadow-xs">
+              <Users size={12} className="text-[#FFD700] shrink-0" />
+              <select
+                value={selectedTeamId}
+                onChange={(e) => setSelectedTeamId(e.target.value)}
+                aria-label="Selector rápido de equipo activo"
+                className="bg-transparent text-white font-extrabold focus:outline-none cursor-pointer max-w-[115px] sm:max-w-[170px] truncate"
+              >
+                {activeTeams.map(t => (
+                  <option key={t.id} value={t.id} className="bg-[#004183] text-white">
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Sync Button on the Right */}
+            <button
+              onClick={() => setShowSyncModal(true)}
+              className="bg-[#003163] hover:bg-blue-800 text-white border border-blue-700/50 hover:border-blue-600 transition duration-150 rounded-lg px-2.5 py-1 flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+              title="Sincronizar y compartir datos"
+            >
+              <Share2 size={13} className="text-[#FFD700] shrink-0" />
+              <span className="text-[10.5px] font-black uppercase tracking-wider hidden sm:inline">Sincronizar</span>
+            </button>
+          </div>
         </div>
       </header>
 
       {/* CORE FRAME LAYOUT CONTENT */}
       <main className="flex-1 overflow-y-auto pb-24" id="main-render-slot">
         {activeTab === 'live' && (
-          <LiveTracker
-            players={players}
-            onSaveMatch={handleSaveMatch}
-            initialLiveState={liveDraft}
-            onSaveLiveDraft={handleSaveLiveDraft}
-          />
+          <div key={`${selectedTeamId}-${selectedSeasonId}`}>
+            <LiveTracker
+              players={activeTeamSeasonPlayers}
+              onSaveMatch={handleSaveMatch}
+              initialLiveState={activeLiveDraft}
+              onSaveLiveDraft={handleSaveLiveDraft}
+              activeTeamId={selectedTeamId}
+              activeSeasonId={selectedSeasonId}
+              activeTeamName={activeTeam?.name}
+            />
+          </div>
         )}
 
         {activeTab === 'history' && (
           <HistoryList
-            matches={matches}
-            players={players}
+            matches={activeTeamMatches}
+            players={activeTeamAllPlayers}
             onDeleteMatch={handleDeleteMatch}
             onUpdateMatchComment={handleUpdateMatchComment}
+            activeTeamName={activeTeam?.name}
           />
         )}
 
         {activeTab === 'stats' && (
           <StatsDashboard
-            matches={matches}
-            players={players}
+            matches={activeTeamMatches}
+            players={activeTeamAllPlayers}
+            activeTeamName={activeTeam?.name}
           />
         )}
 
         {activeTab === 'players' && (
-          <PlayerManager
-            players={players}
-            matches={matches}
-            onAddPlayer={handleAddPlayer}
-            onEditPlayer={handleEditPlayer}
-            onDeletePlayer={handleDeletePlayer}
-          />
+          <div>
+            <TeamManagementPanel
+              teams={teams}
+              seasons={seasons}
+              selectedTeamId={selectedTeamId}
+              selectedSeasonId={selectedSeasonId}
+              activePlayers={activeTeamSeasonPlayers}
+              allPlayers={players}
+              onSelectTeam={setSelectedTeamId}
+              onSelectSeason={setSelectedSeasonId}
+              onCreateTeam={handleCreateTeam}
+              onUpdateTeam={handleUpdateTeam}
+              onDuplicateTeam={handleDuplicateTeam}
+              onArchiveTeam={handleArchiveTeam}
+              onCreateSeason={handleCreateSeason}
+              onBulkImportExcel={handleBulkImportExcel}
+            />
+            <PlayerManager
+              players={activeTeamSeasonPlayers}
+              matches={activeTeamSeasonMatches}
+              onAddPlayer={handleAddPlayer}
+              onEditPlayer={handleEditPlayer}
+              onDeletePlayer={handleDeletePlayer}
+              activeTeamName={activeTeam?.name}
+            />
+          </div>
         )}
       </main>
 
@@ -584,7 +1011,7 @@ export default function App() {
           >
             <div className="relative">
               <Play size={20} className={activeTab === 'live' ? 'fill-blue-900 text-blue-900' : ''} />
-              {liveDraft && (
+              {activeLiveDraft && (
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-yellow-500 border border-white rounded-full"></span>
               )}
             </div>
