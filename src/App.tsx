@@ -45,6 +45,57 @@ const normalizeNameForMatch = (value: string): string =>
     .trim()
     .toLowerCase();
 
+const getDraftScopeKey = (teamId?: string, seasonId?: string): string =>
+  `${teamId || DEFAULT_TEAM_ID}::${seasonId || DEFAULT_SEASON_ID}`;
+
+const sanitizeMatch = (m: any): Match => ({
+  ...m,
+  teamId: m?.teamId || DEFAULT_TEAM_ID,
+  seasonId: m?.seasonId || DEFAULT_SEASON_ID,
+  shotsEvents: Array.isArray(m?.shotsEvents) ? m.shotsEvents : [],
+  titulares: Array.isArray(m?.titulares) ? m.titulares : [],
+  suplentes: Array.isArray(m?.suplentes) ? m.suplentes : [],
+  rotationEvents: Array.isArray(m?.rotationEvents) ? m.rotationEvents : [],
+  rivalColor: m?.rivalColor || '#dc2626',
+  talaveraKit: m?.talaveraKit || '1ª Equipación',
+  localFouls1stHalf: m?.localFouls1stHalf ?? 0,
+  rivalFouls1stHalf: m?.rivalFouls1stHalf ?? 0,
+  localFouls2ndHalf: m?.localFouls2ndHalf ?? 0,
+  rivalFouls2ndHalf: m?.rivalFouls2ndHalf ?? 0,
+  stats: m?.stats && typeof m.stats === 'object' ? m.stats : {},
+});
+
+const isMeaningfulLiveDraft = (draft: LiveMatchState | null | undefined): draft is LiveMatchState => {
+  if (!draft) return false;
+  const hasScore = (draft.goalsFor || 0) > 0 || (draft.goalsAgainst || 0) > 0;
+  const hasEvents =
+    (draft.shotsEvents?.length || 0) > 0 ||
+    (draft.rotationEvents?.length || 0) > 0 ||
+    (draft.penaltyTimers?.length || 0) > 0;
+  const hasProgress =
+    !draft.isPreMatch ||
+    draft.half === 2 ||
+    (draft.localFouls1stHalf || 0) > 0 ||
+    (draft.rivalFouls1stHalf || 0) > 0 ||
+    (draft.localFouls2ndHalf || 0) > 0 ||
+    (draft.rivalFouls2ndHalf || 0) > 0 ||
+    (draft.teamShotsUnattributed || 0) > 0 ||
+    (draft.teamYellowsStaff || 0) > 0;
+  const hasPlayerMinutes = Object.values(draft.playersState || {}).some(
+    ps =>
+      (ps.secondsPlayed || 0) > 0 ||
+      (ps.secondsPlayed1st || 0) > 0 ||
+      (ps.shots || 0) > 0 ||
+      (ps.goals || 0) > 0 ||
+      (ps.yellows || 0) > 0 ||
+      ps.redCard ||
+      (ps.saves || 0) > 0 ||
+      (ps.goalsConceded || 0) > 0
+  );
+  const hasRivalText = Boolean(draft.rival && draft.rival.trim() !== '');
+  return hasScore || hasEvents || hasProgress || hasPlayerMinutes || hasRivalText;
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'live' | 'history' | 'stats' | 'players'>('live');
 
@@ -121,18 +172,7 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.map((m: any) => ({
-            ...m,
-            shotsEvents: m.shotsEvents || [],
-            titulares: m.titulares || [],
-            suplentes: m.suplentes || [],
-            rivalColor: m.rivalColor || '#dc2626',
-            talaveraKit: m.talaveraKit || '1ª Equipación',
-            localFouls1stHalf: m.localFouls1stHalf ?? 0,
-            rivalFouls1stHalf: m.rivalFouls1stHalf ?? 0,
-            localFouls2ndHalf: m.localFouls2ndHalf ?? 0,
-            rivalFouls2ndHalf: m.rivalFouls2ndHalf ?? 0,
-          }));
+          return parsed.map(sanitizeMatch);
         }
       } catch (e) {
         console.error('Failed to parse matches history.', e);
@@ -141,25 +181,43 @@ export default function App() {
     return [];
   });
 
-  // Live Drafts per Team (migrating legacy v1 draft if v2 does not exist)
-  const [liveDraftsByTeam, setLiveDraftsByTeam] = useState<Record<string, LiveMatchState | null>>(() => {
-    const savedV2 = localStorage.getItem('futsal_live_drafts_v2');
-    if (savedV2) {
+  // Live Drafts scoped by Team & Season (migrating legacy v2/v1 drafts if v3 does not exist)
+  const [liveDraftsByScope, setLiveDraftsByScope] = useState<Record<string, LiveMatchState | null>>(() => {
+    const savedV3 = localStorage.getItem('futsal_live_drafts_v3');
+    if (savedV3) {
       try {
-        const parsed = JSON.parse(savedV2);
+        const parsed = JSON.parse(savedV3);
         if (parsed && typeof parsed === 'object') {
           return parsed;
         }
       } catch (e) {
-        console.error('Failed to load live drafts v2.', e);
+        console.error('Failed to load live drafts v3.', e);
+      }
+    }
+    const savedV2 = localStorage.getItem('futsal_live_drafts_v2');
+    if (savedV2) {
+      try {
+        const parsed = JSON.parse(savedV2) as Record<string, LiveMatchState | null>;
+        if (parsed && typeof parsed === 'object') {
+          const migrated: Record<string, LiveMatchState | null> = {};
+          Object.entries(parsed).forEach(([teamKey, draft]) => {
+            if (isMeaningfulLiveDraft(draft)) {
+              const scopeKey = getDraftScopeKey(draft.teamId || teamKey, draft.seasonId || DEFAULT_SEASON_ID);
+              migrated[scopeKey] = draft;
+            }
+          });
+          return migrated;
+        }
+      } catch (e) {
+        console.error('Failed to migrate live drafts v2.', e);
       }
     }
     const savedLegacy = localStorage.getItem('futsal_live_draft_v1');
     if (savedLegacy) {
       try {
         const parsed = JSON.parse(savedLegacy) as LiveMatchState;
-        if (parsed) {
-          return { [parsed.teamId || DEFAULT_TEAM_ID]: parsed };
+        if (isMeaningfulLiveDraft(parsed)) {
+          return { [getDraftScopeKey(parsed.teamId, parsed.seasonId)]: parsed };
         }
       } catch (e) {
         console.error('Failed to migrate legacy live draft.', e);
@@ -168,7 +226,9 @@ export default function App() {
     return {};
   });
 
-  const activeLiveDraft = liveDraftsByTeam[selectedTeamId] || null;
+  const activeDraftScopeKey = getDraftScopeKey(selectedTeamId, selectedSeasonId);
+  const activeLiveDraft = liveDraftsByScope[activeDraftScopeKey] || null;
+  const hasRealLiveDraft = isMeaningfulLiveDraft(activeLiveDraft);
 
   // Persist Teams, Seasons, Active Context, Drafts & Players to localStorage
   useEffect(() => {
@@ -188,8 +248,8 @@ export default function App() {
   }, [selectedSeasonId]);
 
   useEffect(() => {
-    localStorage.setItem('futsal_live_drafts_v2', JSON.stringify(liveDraftsByTeam));
-  }, [liveDraftsByTeam]);
+    localStorage.setItem('futsal_live_drafts_v3', JSON.stringify(liveDraftsByScope));
+  }, [liveDraftsByScope]);
 
   // Ensure selectedTeamId never points to a missing or archived team
   useEffect(() => {
@@ -198,6 +258,14 @@ export default function App() {
       setSelectedTeamId(nonArchived[0].id);
     }
   }, [teams, selectedTeamId]);
+
+  // Ensure selectedSeasonId never points to a missing season
+  useEffect(() => {
+    if (seasons.length > 0 && !seasons.some(s => s.id === selectedSeasonId)) {
+      const activeS = seasons.find(s => s.isActive) || seasons[0];
+      setSelectedSeasonId(activeS.id);
+    }
+  }, [seasons, selectedSeasonId]);
 
   // Filtered global lists by active Team & Season
   const activeTeams = useMemo(() => teams.filter(t => !t.isArchived), [teams]);
@@ -280,26 +348,32 @@ export default function App() {
     const needsOptimization = players.some(p => p.photo && p.photo.length > 25000);
     if (!needsOptimization) return;
 
+    let cancelled = false;
     const optimizeAll = async () => {
-      const updatedPlayers = await Promise.all(
+      const compressedMap = new Map<string, string>();
+      await Promise.all(
         players.map(async (p) => {
           if (p.photo && p.photo.length > 25000) {
             // High-resolution camera photo imported, optimize to standard high-clarity 180px
             const compressed = await compressBase64Image(p.photo, 180, 0.82);
-            return { ...p, photo: compressed };
+            if (compressed !== p.photo) {
+              compressedMap.set(p.id, compressed);
+            }
           }
-          return p;
         })
       );
-      
-      // Prevent infinite loop if nothing actually changed
-      const hasChanges = updatedPlayers.some((p, i) => p.photo !== players[i].photo);
-      if (hasChanges) {
-        setPlayers(updatedPlayers);
+
+      if (!cancelled && compressedMap.size > 0) {
+        setPlayers(prev =>
+          prev.map(p => (compressedMap.has(p.id) ? { ...p, photo: compressedMap.get(p.id)! } : p))
+        );
       }
     };
 
     optimizeAll();
+    return () => {
+      cancelled = true;
+    };
   }, [players]);
 
   // Synchronize Matches state to localStorage
@@ -344,16 +418,18 @@ export default function App() {
   // Archive & Save live match
   const handleSaveMatch = useCallback((newMatch: Omit<Match, 'id'>) => {
     const targetTeamId = newMatch.teamId || selectedTeamId;
-    const match: Match = {
+    const targetSeasonId = newMatch.seasonId || selectedSeasonId;
+    const match: Match = sanitizeMatch({
       ...newMatch,
       id: generateId('m'),
       teamId: targetTeamId,
-      seasonId: newMatch.seasonId || selectedSeasonId
-    };
+      seasonId: targetSeasonId
+    });
+    const scopeKey = getDraftScopeKey(targetTeamId, targetSeasonId);
     setMatches(prev => [...prev, match]);
-    setLiveDraftsByTeam(prev => ({
+    setLiveDraftsByScope(prev => ({
       ...prev,
-      [targetTeamId]: null
+      [scopeKey]: null
     }));
     localStorage.removeItem('futsal_live_draft_v1');
     
@@ -373,19 +449,37 @@ export default function App() {
     );
   }, []);
 
-  // Auto-backup live match in progress (isolated per team)
+  // Auto-backup live match in progress (isolated per team + season)
   const handleSaveLiveDraft = useCallback((state: LiveMatchState) => {
     const targetTeamId = state.teamId || selectedTeamId;
+    const targetSeasonId = state.seasonId || selectedSeasonId;
     const stampedState: LiveMatchState = {
       ...state,
       teamId: targetTeamId,
-      seasonId: state.seasonId || selectedSeasonId
+      seasonId: targetSeasonId
     };
-    setLiveDraftsByTeam(prev => ({
+    const scopeKey = getDraftScopeKey(targetTeamId, targetSeasonId);
+    if (!isMeaningfulLiveDraft(stampedState)) {
+      setLiveDraftsByScope(prev => {
+        if (!prev[scopeKey]) return prev;
+        return { ...prev, [scopeKey]: null };
+      });
+      return;
+    }
+    setLiveDraftsByScope(prev => ({
       ...prev,
-      [targetTeamId]: stampedState
+      [scopeKey]: stampedState
     }));
     localStorage.setItem('futsal_live_draft_v1', JSON.stringify(stampedState));
+  }, [selectedTeamId, selectedSeasonId]);
+
+  const handleClearLiveDraft = useCallback(() => {
+    const scopeKey = getDraftScopeKey(selectedTeamId, selectedSeasonId);
+    setLiveDraftsByScope(prev => ({
+      ...prev,
+      [scopeKey]: null
+    }));
+    localStorage.removeItem('futsal_live_draft_v1');
   }, [selectedTeamId, selectedSeasonId]);
 
   // Team & Season CRUD callbacks
@@ -458,8 +552,8 @@ export default function App() {
   const handleBulkImportExcel = useCallback((rows: ParsedExcelPlayerRow[]) => {
     if (rows.length === 0) return;
 
-    const nextTeams = [...teams];
-    const nextSeasons = [...seasons];
+    const nextTeams = teams.map(t => ({ ...t }));
+    const nextSeasons = seasons.map(s => ({ ...s }));
     const createdPlayers: Player[] = [];
     let lastTeamId = selectedTeamId;
     let lastSeasonId = selectedSeasonId;
@@ -502,7 +596,7 @@ export default function App() {
         alias: row.alias || row.name.split(/\s+/)[0],
         number: row.number,
         position: row.position,
-        isActive: true,
+        isActive: row.status !== 'baja',
         birthDate: row.birthDate || '',
         dominantLeg: row.dominantLeg,
         gender: row.gender,
@@ -532,6 +626,7 @@ export default function App() {
     players?: Player[];
     matches?: Match[];
     liveDraft?: LiveMatchState | null;
+    liveDraftsByScope?: Record<string, LiveMatchState | null>;
   } | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [manualCode, setManualCode] = useState('');
@@ -572,12 +667,18 @@ export default function App() {
         photo: ''
       }));
     }
+    const cleanScopedDrafts = Object.fromEntries(
+      (Object.entries(liveDraftsByScope) as Array<[string, LiveMatchState | null]>).filter(([, draft]) =>
+        isMeaningfulLiveDraft(draft)
+      )
+    );
     return {
       teams: teams || DEFAULT_TEAMS,
       seasons: seasons || DEFAULT_SEASONS,
       players: finalPlayers,
       matches: options.excludeMatches ? [] : (matches || []),
-      liveDraft: options.excludeLive ? null : (activeLiveDraft || null)
+      liveDraft: options.excludeLive ? null : (hasRealLiveDraft ? activeLiveDraft : null),
+      liveDraftsByScope: options.excludeLive ? {} : cleanScopedDrafts
     };
   };
 
@@ -655,7 +756,7 @@ export default function App() {
               if (exPhotos && exMatches) {
                 setQrWarning('Código QR súper optimizado. Se han omitido fotos e historial de encuentros de forma automática para ajustar la capacidad del QR.');
               } else if (exPhotos) {
-                setQrWarning('Código QR optimizado. Se han omitido las fotos de las jugadoras automáticamente para reducir el tamaño.');
+                setQrWarning('Código QR optimizado. Se han omitido las fotos automáticamente para reducir el tamaño.');
               } else {
                 setQrWarning('Código QR completo generado con éxito.');
               }
@@ -679,7 +780,7 @@ export default function App() {
 
       tryGenerate(shareExcludePhotos, shareExcludeMatches, shareExcludeLive);
     }
-  }, [showSyncModal, syncTab, teams, seasons, players, matches, activeLiveDraft, shareExcludePhotos, shareExcludeMatches, shareExcludeLive]);
+  }, [showSyncModal, syncTab, teams, seasons, players, matches, activeLiveDraft, liveDraftsByScope, shareExcludePhotos, shareExcludeMatches, shareExcludeLive]);
 
   const exportToJsonFile = () => {
     const dataStr = JSON.stringify(getPackageData(), null, 2);
@@ -696,6 +797,7 @@ export default function App() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
     const reader = new FileReader();
@@ -703,7 +805,7 @@ export default function App() {
       try {
         const text = event.target?.result as string;
         const parsed = JSON.parse(text);
-        if (parsed && (parsed.players || parsed.matches || parsed.teams)) {
+        if (parsed && (parsed.players || parsed.matches || parsed.teams || parsed.liveDraft || parsed.liveDraftsByScope)) {
           setPendingImport(parsed);
           setShowImportModal(true);
           setShowSyncModal(false);
@@ -722,7 +824,7 @@ export default function App() {
     try {
       const decodedStr = decodeImportString(manualCode.trim());
       const parsed = JSON.parse(decodedStr);
-      if (parsed && (parsed.players || parsed.matches || parsed.teams)) {
+      if (parsed && (parsed.players || parsed.matches || parsed.teams || parsed.liveDraft || parsed.liveDraftsByScope)) {
         setPendingImport(parsed);
         setShowImportModal(true);
         setShowSyncModal(false);
@@ -750,72 +852,95 @@ export default function App() {
         if (activeS) setSelectedSeasonId(activeS.id);
       }
       if (pendingImport.players) setPlayers(pendingImport.players);
-      if (pendingImport.matches) setMatches(pendingImport.matches);
-      if (pendingImport.liveDraft !== undefined) {
-        const draftTeamId = pendingImport.liveDraft?.teamId || selectedTeamId;
-        setLiveDraftsByTeam(prev => ({
-          ...prev,
-          [draftTeamId]: pendingImport.liveDraft || null
-        }));
-        if (pendingImport.liveDraft) {
-          localStorage.setItem('futsal_live_draft_v1', JSON.stringify(pendingImport.liveDraft));
-        } else {
-          localStorage.removeItem('futsal_live_draft_v1');
-        }
+      if (pendingImport.matches) setMatches(pendingImport.matches.map(sanitizeMatch));
+
+      const nextDrafts: Record<string, LiveMatchState | null> = {};
+      if (pendingImport.liveDraftsByScope && typeof pendingImport.liveDraftsByScope === 'object') {
+        (Object.values(pendingImport.liveDraftsByScope) as Array<LiveMatchState | null>).forEach(d => {
+          if (isMeaningfulLiveDraft(d)) {
+            const key = getDraftScopeKey(d.teamId, d.seasonId);
+            nextDrafts[key] = d;
+          }
+        });
+      }
+      if (isMeaningfulLiveDraft(pendingImport.liveDraft)) {
+        const key = getDraftScopeKey(pendingImport.liveDraft.teamId, pendingImport.liveDraft.seasonId);
+        nextDrafts[key] = pendingImport.liveDraft;
+      }
+      setLiveDraftsByScope(nextDrafts);
+      if (isMeaningfulLiveDraft(pendingImport.liveDraft)) {
+        localStorage.setItem('futsal_live_draft_v1', JSON.stringify(pendingImport.liveDraft));
+      } else {
+        localStorage.removeItem('futsal_live_draft_v1');
       }
     } else {
-      // Merge teams & seasons first
+      // Build deterministic team & season ID mappings when homonyms match existing entries
+      const teamIdMap = new Map<string, string>();
       if (pendingImport.teams && pendingImport.teams.length > 0) {
-        setTeams(prev => {
-          const merged = [...(prev || [])];
-          pendingImport.teams!.forEach(newT => {
-            const exists = merged.find(
-              t =>
-                t.id === newT.id ||
-                normalizeNameForMatch(t.name) === normalizeNameForMatch(newT.name)
-            );
-            if (!exists) merged.push(newT);
-          });
-          return merged;
+        const mergedTeams = [...(teams || [])];
+        pendingImport.teams.forEach(newT => {
+          const existing = mergedTeams.find(
+            t =>
+              t.id === newT.id ||
+              (!t.isArchived && !newT.isArchived && normalizeNameForMatch(t.name) === normalizeNameForMatch(newT.name)) ||
+              (t.isArchived === newT.isArchived && normalizeNameForMatch(t.name) === normalizeNameForMatch(newT.name))
+          );
+          if (existing) {
+            teamIdMap.set(newT.id, existing.id);
+          } else {
+            mergedTeams.push(newT);
+            teamIdMap.set(newT.id, newT.id);
+          }
         });
+        setTeams(mergedTeams);
       }
 
+      const seasonIdMap = new Map<string, string>();
       if (pendingImport.seasons && pendingImport.seasons.length > 0) {
-        setSeasons(prev => {
-          const merged = [...(prev || [])];
-          pendingImport.seasons!.forEach(newS => {
-            const exists = merged.find(
-              s =>
-                s.id === newS.id ||
-                normalizeNameForMatch(s.name) === normalizeNameForMatch(newS.name)
-            );
-            if (!exists) merged.push(newS);
-          });
-          return merged;
+        const mergedSeasons = [...(seasons || [])];
+        pendingImport.seasons.forEach(newS => {
+          const existing = mergedSeasons.find(
+            s => s.id === newS.id || normalizeNameForMatch(s.name) === normalizeNameForMatch(newS.name)
+          );
+          if (existing) {
+            seasonIdMap.set(newS.id, existing.id);
+          } else {
+            mergedSeasons.push(newS);
+            seasonIdMap.set(newS.id, newS.id);
+          }
         });
+        setSeasons(mergedSeasons);
       }
+
+      const mapTeamId = (id?: string) => (id ? (teamIdMap.get(id) || id) : DEFAULT_TEAM_ID);
+      const mapSeasonId = (id?: string) => (id ? (seasonIdMap.get(id) || id) : DEFAULT_SEASON_ID);
 
       if (pendingImport.players) {
         setPlayers(prev => {
           const merged = [...(prev || [])];
           pendingImport.players!.forEach(newP => {
-            const newTeamId = newP.teamId || DEFAULT_TEAM_ID;
-            const newSeasonId = newP.seasonId || DEFAULT_SEASON_ID;
+            const remapped: Player = {
+              ...newP,
+              teamId: mapTeamId(newP.teamId),
+              seasonId: mapSeasonId(newP.seasonId)
+            };
+            const remTeamId = remapped.teamId || DEFAULT_TEAM_ID;
+            const remSeasonId = remapped.seasonId || DEFAULT_SEASON_ID;
             const exists = merged.find(p => {
               const pTeamId = p.teamId || DEFAULT_TEAM_ID;
               const pSeasonId = p.seasonId || DEFAULT_SEASON_ID;
-              const sameScope = pTeamId === newTeamId && pSeasonId === newSeasonId;
+              const sameScope = pTeamId === remTeamId && pSeasonId === remSeasonId;
               return (
-                p.id === newP.id ||
+                p.id === remapped.id ||
                 (sameScope &&
-                  p.name.trim().toLowerCase() === newP.name.trim().toLowerCase() &&
-                  p.number === newP.number) ||
+                  normalizeNameForMatch(p.name) === normalizeNameForMatch(remapped.name) &&
+                  p.number === remapped.number) ||
                 // Two active players in the SAME team & season cannot share a dorsal number
-                (sameScope && p.isActive && newP.isActive && p.number === newP.number)
+                (sameScope && p.isActive && remapped.isActive && p.number === remapped.number)
               );
             });
             if (!exists) {
-              merged.push(newP);
+              merged.push(remapped);
             }
           });
           return merged;
@@ -825,25 +950,45 @@ export default function App() {
       if (pendingImport.matches) {
         setMatches(prev => {
           const merged = [...(prev || [])];
-          pendingImport.matches!.forEach(newM => {
-            const exists = merged.find(m => m.id === newM.id);
+          pendingImport.matches!.forEach(rawM => {
+            const remapped = sanitizeMatch({
+              ...rawM,
+              teamId: mapTeamId(rawM.teamId),
+              seasonId: mapSeasonId(rawM.seasonId)
+            });
+            const exists = merged.find(m => m.id === remapped.id);
             if (!exists) {
-              merged.push(newM);
+              merged.push(remapped);
             }
           });
           return merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         });
       }
 
-      if (pendingImport.liveDraft) {
-        const draftTeamId = pendingImport.liveDraft.teamId || selectedTeamId;
-        setLiveDraftsByTeam(prev => {
-          if (prev[draftTeamId]) return prev;
-          localStorage.setItem('futsal_live_draft_v1', JSON.stringify(pendingImport.liveDraft));
-          return {
-            ...prev,
-            [draftTeamId]: pendingImport.liveDraft!
-          };
+      const importedDrafts: LiveMatchState[] = [];
+      if (pendingImport.liveDraftsByScope && typeof pendingImport.liveDraftsByScope === 'object') {
+        (Object.values(pendingImport.liveDraftsByScope) as Array<LiveMatchState | null>).forEach(d => {
+          if (isMeaningfulLiveDraft(d)) importedDrafts.push(d);
+        });
+      }
+      if (isMeaningfulLiveDraft(pendingImport.liveDraft)) {
+        importedDrafts.push(pendingImport.liveDraft);
+      }
+      if (importedDrafts.length > 0) {
+        setLiveDraftsByScope(prev => {
+          const next = { ...prev };
+          importedDrafts.forEach(d => {
+            const mappedDraft: LiveMatchState = {
+              ...d,
+              teamId: mapTeamId(d.teamId),
+              seasonId: mapSeasonId(d.seasonId)
+            };
+            const scopeKey = getDraftScopeKey(mappedDraft.teamId, mappedDraft.seasonId);
+            if (!next[scopeKey]) {
+              next[scopeKey] = mappedDraft;
+            }
+          });
+          return next;
         });
       }
     }
@@ -900,7 +1045,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Quick Active Team Switcher Pill */}
             <div className="inline-flex items-center gap-1 bg-[#003163] border border-blue-700/60 rounded-lg px-2 py-1 text-[10.5px] font-extrabold text-white shadow-xs">
               <Users size={12} className="text-[#FFD700] shrink-0" />
@@ -908,7 +1053,7 @@ export default function App() {
                 value={selectedTeamId}
                 onChange={(e) => setSelectedTeamId(e.target.value)}
                 aria-label="Selector rápido de equipo activo"
-                className="bg-transparent text-white font-extrabold focus:outline-none cursor-pointer max-w-[115px] sm:max-w-[170px] truncate"
+                className="bg-transparent text-white font-extrabold focus:outline-none cursor-pointer max-w-[100px] sm:max-w-[160px] truncate"
               >
                 {activeTeams.map(t => (
                   <option key={t.id} value={t.id} className="bg-[#004183] text-white">
@@ -917,6 +1062,25 @@ export default function App() {
                 ))}
               </select>
             </div>
+
+            {/* Quick Active Season Switcher Pill (shown when multiple seasons exist) */}
+            {seasons.length > 1 && (
+              <div className="inline-flex items-center gap-1 bg-[#003163] border border-blue-700/60 rounded-lg px-2 py-1 text-[10.5px] font-extrabold text-white shadow-xs">
+                <Calendar size={12} className="text-[#FFD700] shrink-0" />
+                <select
+                  value={selectedSeasonId}
+                  onChange={(e) => setSelectedSeasonId(e.target.value)}
+                  aria-label="Selector rápido de temporada activa"
+                  className="bg-transparent text-white font-extrabold focus:outline-none cursor-pointer max-w-[78px] sm:max-w-[115px] truncate"
+                >
+                  {seasons.map(s => (
+                    <option key={s.id} value={s.id} className="bg-[#004183] text-white">
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Sync Button on the Right */}
             <button
@@ -940,6 +1104,7 @@ export default function App() {
               onSaveMatch={handleSaveMatch}
               initialLiveState={activeLiveDraft}
               onSaveLiveDraft={handleSaveLiveDraft}
+              onClearLiveDraft={handleClearLiveDraft}
               activeTeamId={selectedTeamId}
               activeSeasonId={selectedSeasonId}
               activeTeamName={activeTeam?.name}
@@ -948,21 +1113,27 @@ export default function App() {
         )}
 
         {activeTab === 'history' && (
-          <HistoryList
-            matches={activeTeamMatches}
-            players={activeTeamAllPlayers}
-            onDeleteMatch={handleDeleteMatch}
-            onUpdateMatchComment={handleUpdateMatchComment}
-            activeTeamName={activeTeam?.name}
-          />
+          <div key={`${selectedTeamId}-${selectedSeasonId}`}>
+            <HistoryList
+              matches={activeTeamSeasonMatches}
+              players={activeTeamSeasonPlayers}
+              allTeamPlayers={activeTeamAllPlayers}
+              onDeleteMatch={handleDeleteMatch}
+              onUpdateMatchComment={handleUpdateMatchComment}
+              activeTeamName={activeTeam?.name}
+            />
+          </div>
         )}
 
         {activeTab === 'stats' && (
-          <StatsDashboard
-            matches={activeTeamMatches}
-            players={activeTeamAllPlayers}
-            activeTeamName={activeTeam?.name}
-          />
+          <div key={`${selectedTeamId}-${selectedSeasonId}`}>
+            <StatsDashboard
+              matches={activeTeamSeasonMatches}
+              players={activeTeamSeasonPlayers}
+              allTeamPlayers={activeTeamAllPlayers}
+              activeTeamName={activeTeam?.name}
+            />
+          </div>
         )}
 
         {activeTab === 'players' && (
@@ -983,14 +1154,16 @@ export default function App() {
               onCreateSeason={handleCreateSeason}
               onBulkImportExcel={handleBulkImportExcel}
             />
-            <PlayerManager
-              players={activeTeamSeasonPlayers}
-              matches={activeTeamSeasonMatches}
-              onAddPlayer={handleAddPlayer}
-              onEditPlayer={handleEditPlayer}
-              onDeletePlayer={handleDeletePlayer}
-              activeTeamName={activeTeam?.name}
-            />
+            <div key={`${selectedTeamId}-${selectedSeasonId}`}>
+              <PlayerManager
+                players={activeTeamSeasonPlayers}
+                matches={activeTeamSeasonMatches}
+                onAddPlayer={handleAddPlayer}
+                onEditPlayer={handleEditPlayer}
+                onDeletePlayer={handleDeletePlayer}
+                activeTeamName={activeTeam?.name}
+              />
+            </div>
           </div>
         )}
       </main>
@@ -1011,7 +1184,7 @@ export default function App() {
           >
             <div className="relative">
               <Play size={20} className={activeTab === 'live' ? 'fill-blue-900 text-blue-900' : ''} />
-              {activeLiveDraft && (
+              {hasRealLiveDraft && (
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-yellow-500 border border-white rounded-full"></span>
               )}
             </div>
@@ -1324,7 +1497,7 @@ export default function App() {
               <div className="flex flex-col">
                 <span className="text-slate-400 text-[9px] font-extrabold uppercase leading-none">Plantilla</span>
                 <span className="font-black text-slate-800 mt-0.5">
-                  {pendingImport.players?.length || 0} jugadoras
+                  {pendingImport.players?.length || 0} jugadores/as
                 </span>
               </div>
               <div className="flex flex-col">

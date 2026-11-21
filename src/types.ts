@@ -95,6 +95,8 @@ export interface ShotEvent {
   goalType?: GoalType;
   playerId?: string; // string ID of the player if local
   playerNumber?: string; // Dorsal of player
+  goalkeeperId?: string; // string ID of the active goalkeeper when rival shot occurred
+  timestamp?: number; // Exact creation timestamp to disambiguate same-second events
   timeString: string; // "MM:SS" of the match
   half: 1 | 2;
   onCourtIds?: string[];
@@ -120,7 +122,7 @@ export interface Match {
   rivalFouls2ndHalf: number;
   shotsEvents: ShotEvent[];
   titulares: string[]; // exactly 5 IDs (Position 1 is treated as Portera)
-  suplentes: string[]; // up to 7 IDs
+  suplentes: string[]; // up to 9 IDs
   comment?: string;
   teamId?: string;
   seasonId?: string;
@@ -164,7 +166,9 @@ export interface LiveMatchState {
   rivalFouls2ndHalf: number;
   shotsEvents: ShotEvent[];
   titulares: string[]; // chosen 5 starters
-  suplentes: string[]; // chosen up to 7 benched/subs
+  initialTitulares?: string[]; // starting 5 chosen at match kickoff
+  suplentes: string[]; // chosen up to 9 benched/subs
+  activeGoalkeeperId?: string; // Currently active GK or flying GK in court
   isPreMatch: boolean; // true if still setting up squad/color
   periodDurationMinutes?: number; // Custom period duration in minutes (e.g., 20)
   attackDirection?: 'derecha' | 'izquierda'; // direction of attack in 1st half: 'derecha' or 'izquierda'
